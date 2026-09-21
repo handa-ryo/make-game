@@ -9,24 +9,121 @@ const hpBarInner = document.getElementById("hp-bar-inner");
 const stageNumEl = document.getElementById("stage-num");
 const scoreNumEl = document.getElementById("score-num");
 const stageBanner = document.getElementById("stage-banner");
+const bossHpWrap = document.getElementById("boss-hp-wrap");
+const bossHpInner = document.getElementById("boss-hp-inner");
 
 const startScreen = document.getElementById("start-screen");
+const charSelectScreen = document.getElementById("char-select-screen");
 const gameoverScreen = document.getElementById("gameover-screen");
 const clearScreen = document.getElementById("clear-screen");
 const gameoverDetail = document.getElementById("gameover-detail");
 const clearDetail = document.getElementById("clear-detail");
 
+// ---------- Bunchou (Java sparrow) character schemes ----------
+const BIRD_SCHEMES = {
+  sakura: {
+    label: "桜文鳥",
+    body: "#98a1b3",
+    head: "#242427",
+    cheek: "#faf6f0",
+    beak: "#e2555a",
+    eyeRing: "#e2555a",
+  },
+  white: {
+    label: "白文鳥",
+    body: "#f7f4ec",
+    head: "#f7f4ec",
+    cheek: null,
+    beak: "#f0a98f",
+    eyeRing: "#e2555a",
+  },
+  cinnamon: {
+    label: "シナモン文鳥",
+    body: "#c99a6b",
+    head: "#a97748",
+    cheek: "#fff6ea",
+    beak: "#e2937a",
+    eyeRing: "#e2555a",
+  },
+};
+let selectedBird = "sakura";
+
+function drawBunchou(g, scheme, scale) {
+  g.save();
+  g.scale(scale, scale);
+
+  // tail
+  g.fillStyle = scheme.head;
+  g.beginPath();
+  g.moveTo(-10, -4);
+  g.lineTo(-21, 0);
+  g.lineTo(-10, 4);
+  g.closePath();
+  g.fill();
+
+  // body
+  g.fillStyle = scheme.body;
+  g.beginPath();
+  g.ellipse(0, 0, 13, 10, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // head
+  g.fillStyle = scheme.head;
+  g.beginPath();
+  g.arc(9, -2, 8, 0, Math.PI * 2);
+  g.fill();
+
+  // cheek patch
+  if (scheme.cheek) {
+    g.fillStyle = scheme.cheek;
+    g.beginPath();
+    g.ellipse(10.5, 1, 4, 3.2, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // beak
+  g.fillStyle = scheme.beak;
+  g.beginPath();
+  g.moveTo(16, -3.2);
+  g.lineTo(22.5, 0);
+  g.lineTo(16, 3.2);
+  g.closePath();
+  g.fill();
+
+  // eye
+  g.strokeStyle = scheme.eyeRing;
+  g.lineWidth = 1.4;
+  g.beginPath();
+  g.arc(11.2, -4, 2.6, 0, Math.PI * 2);
+  g.stroke();
+  g.fillStyle = "#1a1a1a";
+  g.beginPath();
+  g.arc(11.2, -4, 1.2, 0, Math.PI * 2);
+  g.fill();
+
+  g.restore();
+}
+
 // ---------- Stage definitions ----------
-// Each stage is a list of waves; a wave spawns after the previous wave's
-// enemies are cleared (or after a short delay for the first wave).
+// Each stage has waves (spawned as the previous wave's enemies clear), a
+// visual theme, an optional environmental hazard, and an optional boss
+// that appears after the last wave.
 const STAGES = [
   {
+    name: "星雲エリア",
+    theme: { tint: "rgba(60, 90, 170, 0.08)", star: "255,255,255" },
+    hazard: null,
+    boss: false,
     waves: [
       { chasers: 3, shooters: 0 },
       { chasers: 4, shooters: 1 },
     ],
   },
   {
+    name: "隕石帯",
+    theme: { tint: "rgba(180, 110, 60, 0.10)", star: "255,225,190" },
+    hazard: "asteroids",
+    boss: false,
     waves: [
       { chasers: 4, shooters: 2 },
       { chasers: 5, shooters: 2 },
@@ -34,10 +131,13 @@ const STAGES = [
     ],
   },
   {
+    name: "コア攻略戦",
+    theme: { tint: "rgba(160, 30, 40, 0.12)", star: "255,180,180" },
+    hazard: null,
+    boss: true,
     waves: [
+      { chasers: 5, shooters: 3 },
       { chasers: 6, shooters: 3 },
-      { chasers: 6, shooters: 4 },
-      { chasers: 8, shooters: 4, brutes: 1 },
     ],
   },
 ];
@@ -70,7 +170,8 @@ function dist(ax, ay, bx, by) {
 
 // ---------- Entities ----------
 class Player {
-  constructor() {
+  constructor(scheme) {
+    this.scheme = scheme;
     this.x = W / 2;
     this.y = H / 2;
     this.r = 14;
@@ -128,17 +229,7 @@ class Player {
       ctx.globalAlpha = 0.4;
     }
     ctx.rotate(ang);
-    ctx.fillStyle = "#7dd3fc";
-    ctx.strokeStyle = "#e0f2fe";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(18, 0);
-    ctx.lineTo(-12, -11);
-    ctx.lineTo(-6, 0);
-    ctx.lineTo(-12, 11);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    drawBunchou(ctx, this.scheme, 1);
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -175,11 +266,12 @@ class Bullet {
 
 class Enemy {
   constructor(type, x, y) {
-    this.type = type; // "chaser" | "shooter" | "brute"
+    this.type = type; // "chaser" | "shooter" | "brute" | "boss"
     this.x = x;
     this.y = y;
     this.dead = false;
     this.fireCooldown = 1 + Math.random();
+    this.isBoss = type === "boss";
 
     if (type === "chaser") {
       this.r = 12;
@@ -198,8 +290,7 @@ class Enemy {
       this.contactDmg = 8;
       this.score = 20;
       this.preferredDist = 220;
-    } else {
-      // brute
+    } else if (type === "brute") {
       this.r = 20;
       this.speed = 55;
       this.hp = 90;
@@ -207,6 +298,18 @@ class Enemy {
       this.color = "#ef4444";
       this.contactDmg = 20;
       this.score = 50;
+    } else {
+      // boss
+      this.r = 42;
+      this.speed = 70;
+      this.hp = 420;
+      this.maxHp = 420;
+      this.color = "#dc2626";
+      this.contactDmg = 22;
+      this.score = 500;
+      this.burstCooldown = 2.2;
+      this.aimCooldown = 1.1;
+      this.dir = 1;
     }
   }
 
@@ -227,6 +330,27 @@ class Enemy {
         this.fireCooldown = 1.4 + Math.random() * 0.6;
         bullets.push(new Bullet(this.x, this.y, ang, 280, "enemy"));
       }
+    } else if (this.type === "boss") {
+      // patrols the upper area, alternates aimed shots and radial bursts
+      this.x += this.dir * this.speed * dt;
+      if (this.x < 120 || this.x > W - 120) this.dir *= -1;
+      this.y = 130 + Math.sin(performance.now() * 0.0012) * 18;
+
+      this.aimCooldown -= dt;
+      if (this.aimCooldown <= 0) {
+        this.aimCooldown = 1.1;
+        for (let i = -1; i <= 1; i++) {
+          bullets.push(new Bullet(this.x, this.y, ang + i * 0.16, 260, "enemy"));
+        }
+      }
+      this.burstCooldown -= dt;
+      if (this.burstCooldown <= 0) {
+        this.burstCooldown = 2.4;
+        const n = 14;
+        for (let i = 0; i < n; i++) {
+          bullets.push(new Bullet(this.x, this.y, (i / n) * Math.PI * 2, 190, "enemy"));
+        }
+      }
     } else {
       this.x += Math.cos(ang) * this.speed * dt;
       this.y += Math.sin(ang) * this.speed * dt;
@@ -245,7 +369,7 @@ class Enemy {
     if (this.hp <= 0) {
       this.dead = true;
       score += this.score;
-      spawnExplosion(this.x, this.y, this.color);
+      spawnExplosion(this.x, this.y, this.color, this.isBoss ? 50 : 16);
     }
   }
 
@@ -259,20 +383,96 @@ class Enemy {
       ctx.lineTo(this.r, this.r);
       ctx.lineTo(-this.r, this.r);
       ctx.closePath();
+    } else if (this.type === "boss") {
+      const spikes = 10;
+      for (let i = 0; i < spikes; i++) {
+        const a = (i / spikes) * Math.PI * 2;
+        const rr = i % 2 === 0 ? this.r : this.r * 0.72;
+        const px = Math.cos(a) * rr;
+        const py = Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
     } else {
       ctx.arc(0, 0, this.r, 0, Math.PI * 2);
     }
     ctx.fill();
     ctx.restore();
 
-    // hp bar
-    if (this.hp < this.maxHp) {
+    // small hp bar for non-boss enemies (boss uses the HUD bar)
+    if (!this.isBoss && this.hp < this.maxHp) {
       const w = this.r * 2;
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(this.x - w / 2, this.y - this.r - 10, w, 4);
       ctx.fillStyle = "#4ade80";
       ctx.fillRect(this.x - w / 2, this.y - this.r - 10, w * (this.hp / this.maxHp), 4);
     }
+  }
+}
+
+// Drifting asteroid hazard: not part of the enemy roster (doesn't block
+// wave/stage progression), just an environmental obstacle.
+class Asteroid {
+  constructor() {
+    const edge = Math.floor(Math.random() * 4);
+    const margin = 40;
+    if (edge === 0) { this.x = -margin; this.y = Math.random() * H; }
+    else if (edge === 1) { this.x = W + margin; this.y = Math.random() * H; }
+    else if (edge === 2) { this.x = Math.random() * W; this.y = -margin; }
+    else { this.x = Math.random() * W; this.y = H + margin; }
+    const target = { x: Math.random() * W, y: Math.random() * H };
+    const ang = Math.atan2(target.y - this.y, target.x - this.x);
+    const speed = 40 + Math.random() * 50;
+    this.vx = Math.cos(ang) * speed;
+    this.vy = Math.sin(ang) * speed;
+    this.r = 14 + Math.random() * 12;
+    this.hp = 15;
+    this.rot = Math.random() * Math.PI * 2;
+    this.rotSpeed = (Math.random() - 0.5) * 1.5;
+    this.dead = false;
+    this.contactDmg = 16;
+  }
+  update(dt, player) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.rot += this.rotSpeed * dt;
+    if (this.x < -80 || this.x > W + 80 || this.y < -80 || this.y > H + 80) {
+      this.dead = true;
+    }
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
+      player.hit(this.contactDmg * dt * 4);
+    }
+  }
+  hit(dmg) {
+    this.hp -= dmg;
+    if (this.hp <= 0) {
+      this.dead = true;
+      score += 5;
+      spawnExplosion(this.x, this.y, "#c4a077", 10);
+    }
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.fillStyle = "#8a715a";
+    ctx.strokeStyle = "#5c4a3a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const spikes = 7;
+    for (let i = 0; i < spikes; i++) {
+      const a = (i / spikes) * Math.PI * 2;
+      const rr = this.r * (0.75 + ((i * 37) % 10) / 40);
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -306,8 +506,8 @@ class Particle {
   }
 }
 
-function spawnExplosion(x, y, color) {
-  for (let i = 0; i < 16; i++) particles.push(new Particle(x, y, color));
+function spawnExplosion(x, y, color, count) {
+  for (let i = 0; i < (count || 16); i++) particles.push(new Particle(x, y, color));
 }
 function spawnMuzzle(x, y, ang) {
   for (let i = 0; i < 3; i++) {
@@ -319,8 +519,9 @@ function spawnMuzzle(x, y, ang) {
 }
 
 // ---------- Game state ----------
-let player, bullets, enemies, particles, score, shake;
+let player, bullets, enemies, hazards, particles, score, shake;
 let stageIndex, waveIndex, waveTimer, running, spawning;
+let bossSpawned, asteroidTimer;
 
 function spawnWave(wave) {
   const margin = 40;
@@ -345,6 +546,12 @@ function spawnWave(wave) {
   });
 }
 
+function spawnBoss() {
+  enemies.push(new Enemy("boss", W / 2, -60));
+  showBanner("BOSS", 1600);
+  bossHpWrap.classList.add("visible");
+}
+
 function showBanner(text, ms) {
   stageBanner.textContent = text;
   stageBanner.style.transition = "none";
@@ -358,16 +565,20 @@ function showBanner(text, ms) {
 function startStage(idx) {
   stageIndex = idx;
   waveIndex = 0;
+  bossSpawned = false;
+  asteroidTimer = 1.5;
+  bossHpWrap.classList.remove("visible");
   stageNumEl.textContent = String(stageIndex + 1);
-  showBanner(`STAGE ${stageIndex + 1}`, 1400);
+  showBanner(`STAGE ${stageIndex + 1} - ${STAGES[stageIndex].name}`, 1600);
   waveTimer = 1.0;
   spawning = true;
 }
 
 function resetGame() {
-  player = new Player();
+  player = new Player(BIRD_SCHEMES[selectedBird]);
   bullets = [];
   enemies = [];
+  hazards = [];
   particles = [];
   score = 0;
   shake = 0;
@@ -397,6 +608,16 @@ function update(dt) {
 
   enemies.forEach((e) => e.update(dt, player));
 
+  const stage = STAGES[stageIndex];
+  if (stage.hazard === "asteroids") {
+    asteroidTimer -= dt;
+    if (asteroidTimer <= 0) {
+      asteroidTimer = 1.0 + Math.random() * 1.2;
+      hazards.push(new Asteroid());
+    }
+  }
+  hazards.forEach((h) => h.update(dt, player));
+
   // player bullets vs enemies
   for (const b of bullets) {
     if (b.owner !== "player") continue;
@@ -404,6 +625,15 @@ function update(dt) {
       if (e.dead) continue;
       if (dist(b.x, b.y, e.x, e.y) < b.r + e.r) {
         e.hit(b.dmg);
+        b.dead = true;
+        break;
+      }
+    }
+    if (b.dead) continue;
+    for (const h of hazards) {
+      if (h.dead) continue;
+      if (dist(b.x, b.y, h.x, h.y) < b.r + h.r) {
+        h.hit(b.dmg);
         b.dead = true;
         break;
       }
@@ -419,26 +649,36 @@ function update(dt) {
   }
   bullets = bullets.filter((b) => !b.dead);
   enemies = enemies.filter((e) => !e.dead);
+  hazards = hazards.filter((h) => !h.dead);
 
   particles.forEach((p) => p.update(dt));
   particles = particles.filter((p) => p.life > 0);
 
   if (shake > 0) shake = Math.max(0, shake - dt * 40);
 
+  // boss hp bar
+  const boss = enemies.find((e) => e.isBoss);
+  if (boss) {
+    bossHpInner.style.width = `${clamp((boss.hp / boss.maxHp) * 100, 0, 100)}%`;
+  }
+
   // wave / stage progression
   if (spawning) {
     waveTimer -= dt;
     if (waveTimer <= 0) {
-      spawnWave(STAGES[stageIndex].waves[waveIndex]);
+      spawnWave(stage.waves[waveIndex]);
       spawning = false;
     }
   } else if (enemies.length === 0) {
     waveIndex++;
-    const stage = STAGES[stageIndex];
     if (waveIndex < stage.waves.length) {
       waveTimer = 1.2;
       spawning = true;
+    } else if (stage.boss && !bossSpawned) {
+      bossSpawned = true;
+      spawnBoss();
     } else {
+      bossHpWrap.classList.remove("visible");
       if (stageIndex + 1 < STAGES.length) {
         stageIndex++;
         startStage(stageIndex);
@@ -460,16 +700,23 @@ function draw() {
     ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
   }
 
-  // starfield background dots (static seed-free, cheap)
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  const theme = STAGES[stageIndex].theme;
+
+  // stage tint overlay
+  ctx.fillStyle = theme.tint;
+  ctx.fillRect(0, 0, W, H);
+
+  // starfield background dots (cheap, stage-tinted)
   for (let i = 0; i < 40; i++) {
     const sx = (i * 137.5) % W;
     const sy = (i * 91.3 + performance.now() * 0.01) % H;
     ctx.globalAlpha = 0.15 + ((i * 7) % 10) / 40;
+    ctx.fillStyle = `rgba(${theme.star}, 1)`;
     ctx.fillRect(sx, sy, 2, 2);
   }
   ctx.globalAlpha = 1;
 
+  hazards.forEach((h) => h.draw());
   particles.forEach((p) => p.draw());
   bullets.forEach((b) => b.draw());
   enemies.forEach((e) => e.draw());
@@ -489,9 +736,42 @@ function loop(t) {
   requestAnimationFrame(loop);
 }
 
+// ---------- Character select ----------
+const birdPicker = document.getElementById("bird-picker");
+Object.keys(BIRD_SCHEMES).forEach((key) => {
+  const scheme = BIRD_SCHEMES[key];
+  const card = document.createElement("div");
+  card.className = "bird-card" + (key === selectedBird ? " selected" : "");
+  card.dataset.bird = key;
+
+  const prevCanvas = document.createElement("canvas");
+  prevCanvas.width = 64;
+  prevCanvas.height = 64;
+  const pctx = prevCanvas.getContext("2d");
+  pctx.translate(24, 32);
+  pctx.rotate(0);
+  drawBunchou(pctx, scheme, 1.7);
+
+  const label = document.createElement("span");
+  label.textContent = scheme.label;
+
+  card.appendChild(prevCanvas);
+  card.appendChild(label);
+  card.addEventListener("click", () => {
+    selectedBird = key;
+    document.querySelectorAll(".bird-card").forEach((c) => c.classList.remove("selected"));
+    card.classList.add("selected");
+  });
+  birdPicker.appendChild(card);
+});
+
 // ---------- Screen wiring ----------
 document.getElementById("start-btn").addEventListener("click", () => {
   startScreen.classList.add("hidden");
+  charSelectScreen.classList.remove("hidden");
+});
+document.getElementById("confirm-bird-btn").addEventListener("click", () => {
+  charSelectScreen.classList.add("hidden");
   resetGame();
 });
 document.getElementById("retry-btn").addEventListener("click", () => {
@@ -500,7 +780,7 @@ document.getElementById("retry-btn").addEventListener("click", () => {
 });
 document.getElementById("restart-btn").addEventListener("click", () => {
   clearScreen.classList.add("hidden");
-  resetGame();
+  charSelectScreen.classList.remove("hidden");
 });
 
 requestAnimationFrame(loop);
