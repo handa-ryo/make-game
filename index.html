@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Drifter</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #05050a;
+    height: 100%;
+    overflow: hidden;
+    font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+  }
+  #game-wrap {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    background: radial-gradient(ellipse at center, #0a0e1f 0%, #050508 100%);
+    display: block;
+    box-shadow: 0 0 60px rgba(80, 160, 255, 0.15);
+    cursor: crosshair;
+  }
+  #hud {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    justify-content: space-between;
+    color: #dfe8ff;
+    font-size: 15px;
+    letter-spacing: 0.05em;
+    text-shadow: 0 0 6px rgba(0,0,0,0.8);
+    pointer-events: none;
+    user-select: none;
+  }
+  #hud .stat {
+    background: rgba(10, 14, 30, 0.55);
+    border: 1px solid rgba(120, 170, 255, 0.25);
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-right: 8px;
+  }
+  #hud .row {
+    display: flex;
+  }
+  #hp-bar-outer {
+    width: 140px;
+    height: 10px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  #hp-bar-inner {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #ff4d6d, #ff8fa3);
+    transition: width 0.15s ease;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(3, 4, 10, 0.82);
+    color: #eef2ff;
+    text-align: center;
+    gap: 18px;
+  }
+  .overlay h1 {
+    font-size: 42px;
+    margin: 0;
+    letter-spacing: 0.08em;
+    background: linear-gradient(90deg, #7dd3fc, #a78bfa, #fca5a5);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .overlay p {
+    margin: 0;
+    max-width: 460px;
+    line-height: 1.7;
+    color: #b9c2e0;
+    font-size: 14px;
+  }
+  .overlay button {
+    padding: 12px 34px;
+    font-size: 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(150, 190, 255, 0.4);
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: white;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    box-shadow: 0 6px 24px rgba(80, 100, 255, 0.35);
+    transition: transform 0.1s ease;
+  }
+  .overlay button:hover {
+    transform: translateY(-2px);
+  }
+  .hidden { display: none !important; }
+  #stage-banner {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 30px;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(120,170,255,0.9);
+    letter-spacing: 0.1em;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .keycap {
+    display: inline-block;
+    border: 1px solid rgba(200,210,255,0.4);
+    border-radius: 4px;
+    padding: 1px 7px;
+    margin: 0 2px;
+    background: rgba(255,255,255,0.06);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="game" width="900" height="600"></canvas>
+
+  <div id="hud">
+    <div class="row">
+      <div class="stat">STAGE <span id="stage-num">1</span></div>
+      <div class="stat">SCORE <span id="score-num">0</span></div>
+    </div>
+    <div class="stat">
+      HP
+      <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
+    </div>
+  </div>
+
+  <div id="stage-banner"></div>
+
+  <div id="start-screen" class="overlay">
+    <h1>STAR DRIFTER</h1>
+    <p>
+      全方向シューティング。<span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span>
+      または矢印キーで移動、マウスで狙って<span class="keycap">クリック/長押し</span>で射撃。
+      各ステージの敵を全滅させればクリア。全ステージクリアで勝利です。
+    </p>
+    <button id="start-btn">スタート</button>
+  </div>
+
+  <div id="gameover-screen" class="overlay hidden">
+    <h1>GAME OVER</h1>
+    <p id="gameover-detail"></p>
+    <button id="retry-btn">もう一度</button>
+  </div>
+
+  <div id="clear-screen" class="overlay hidden">
+    <h1>ALL CLEAR</h1>
+    <p id="clear-detail"></p>
+    <button id="restart-btn">最初から</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
