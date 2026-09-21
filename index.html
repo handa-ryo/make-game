@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Star Drifter</title>
+<title>Sky Drifter</title>
 <style>
   :root {
     color-scheme: dark;
@@ -25,9 +25,9 @@
     justify-content: center;
   }
   canvas {
-    background: radial-gradient(ellipse at center, #0a0e1f 0%, #050508 100%);
+    background: linear-gradient(180deg, #8fd3ff 0%, #e6f7ff 100%);
     display: block;
-    box-shadow: 0 0 60px rgba(80, 160, 255, 0.15);
+    box-shadow: 0 0 60px rgba(140, 190, 255, 0.25);
     cursor: crosshair;
   }
   #hud {
@@ -221,19 +221,20 @@
   </div>
 
   <div id="boss-hp-wrap">
-    <div id="boss-hp-label">BOSS</div>
+    <div id="boss-hp-label">タカ</div>
     <div id="boss-hp-outer"><div id="boss-hp-inner"></div></div>
   </div>
 
   <div id="stage-banner"></div>
 
   <div id="start-screen" class="overlay">
-    <h1>STAR DRIFTER</h1>
+    <h1>SKY DRIFTER</h1>
     <p>
-      全方向シューティング。<span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span>
-      または矢印キーで移動、マウスで狙って<span class="keycap">クリック/長押し</span>で射撃。
-      ステージごとに敵編成や背景、そして仕掛けが変化します。各ステージの敵を全滅させればクリア。
-      全ステージクリアで勝利です。
+      仲間とはぐれた文鳥が、新天地を探して大空を渡る全方向シューティング。
+      <span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span>
+      または矢印キーで移動、マウスで狙って<span class="keycap">クリック/長押し</span>で嘴弾を発射。
+      青空・雨雲・夕焼け山脈と、ステージごとに空模様も出会う相手も変わっていきます。
+      各ステージの敵を突破すればクリア、全ステージクリアで新天地に到着です。
     </p>
     <button id="start-btn">つぎへ</button>
   </div>

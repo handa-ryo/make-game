@@ -106,12 +106,12 @@ function drawBunchou(g, scheme, scale) {
 
 // ---------- Stage definitions ----------
 // Each stage has waves (spawned as the previous wave's enemies clear), a
-// visual theme, an optional environmental hazard, and an optional boss
-// that appears after the last wave.
+// sky gradient + ambient effect, an optional environmental hazard, and an
+// optional boss that appears after the last wave.
 const STAGES = [
   {
-    name: "星雲エリア",
-    theme: { tint: "rgba(60, 90, 170, 0.08)", star: "255,255,255" },
+    name: "青空",
+    theme: { sky: ["#8fd3ff", "#e6f7ff"], ambient: "clouds" },
     hazard: null,
     boss: false,
     waves: [
@@ -120,19 +120,19 @@ const STAGES = [
     ],
   },
   {
-    name: "隕石帯",
-    theme: { tint: "rgba(180, 110, 60, 0.10)", star: "255,225,190" },
-    hazard: "asteroids",
+    name: "雨雲",
+    theme: { sky: ["#5b6b7d", "#98a6b3"], ambient: "rain" },
+    hazard: "raindrops",
     boss: false,
     waves: [
       { chasers: 4, shooters: 2 },
       { chasers: 5, shooters: 2 },
-      { chasers: 3, shooters: 3 },
+      { chasers: 3, shooters: 3, brutes: 1 },
     ],
   },
   {
-    name: "コア攻略戦",
-    theme: { tint: "rgba(160, 30, 40, 0.12)", star: "255,180,180" },
+    name: "夕焼け山脈",
+    theme: { sky: ["#3b2350", "#ff8a5c"], ambient: "sunset" },
     hazard: null,
     boss: true,
     waves: [
@@ -274,42 +274,47 @@ class Enemy {
     this.isBoss = type === "boss";
 
     if (type === "chaser") {
-      this.r = 12;
-      this.speed = 95 + Math.random() * 25;
+      // dragonfly: fast, direct
+      this.r = 11;
+      this.speed = 100 + Math.random() * 25;
       this.hp = 20;
       this.maxHp = 20;
-      this.color = "#f97316";
+      this.color = "#2dd4bf";
       this.contactDmg = 12;
       this.score = 10;
+      this.wingPhase = Math.random() * Math.PI * 2;
     } else if (type === "shooter") {
-      this.r = 13;
+      // bee: keeps its distance and stings from range
+      this.r = 12;
       this.speed = 60;
       this.hp = 26;
       this.maxHp = 26;
-      this.color = "#c084fc";
+      this.color = "#fbbf24";
       this.contactDmg = 8;
       this.score = 20;
       this.preferredDist = 220;
     } else if (type === "brute") {
-      this.r = 20;
-      this.speed = 55;
+      // crow: tough, harasses in bad weather
+      this.r = 19;
+      this.speed = 58;
       this.hp = 90;
       this.maxHp = 90;
-      this.color = "#ef4444";
+      this.color = "#374151";
       this.contactDmg = 20;
       this.score = 50;
     } else {
-      // boss
-      this.r = 42;
+      // hawk boss
+      this.r = 40;
       this.speed = 70;
       this.hp = 420;
       this.maxHp = 420;
-      this.color = "#dc2626";
+      this.color = "#92400e";
       this.contactDmg = 22;
       this.score = 500;
       this.burstCooldown = 2.2;
       this.aimCooldown = 1.1;
       this.dir = 1;
+      this.wingPhase = 0;
     }
   }
 
@@ -331,7 +336,8 @@ class Enemy {
         bullets.push(new Bullet(this.x, this.y, ang, 280, "enemy"));
       }
     } else if (this.type === "boss") {
-      // patrols the upper area, alternates aimed shots and radial bursts
+      // patrols the upper sky, alternates aimed shots and radial bursts
+      this.wingPhase += dt * 6;
       this.x += this.dir * this.speed * dt;
       if (this.x < 120 || this.x > W - 120) this.dir *= -1;
       this.y = 130 + Math.sin(performance.now() * 0.0012) * 18;
@@ -352,6 +358,8 @@ class Enemy {
         }
       }
     } else {
+      // chaser (dragonfly) or brute (crow)
+      if (this.type === "chaser") this.wingPhase += dt * 22;
       this.x += Math.cos(ang) * this.speed * dt;
       this.y += Math.sin(ang) * this.speed * dt;
     }
@@ -377,27 +385,84 @@ class Enemy {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.fillStyle = this.color;
-    ctx.beginPath();
-    if (this.type === "shooter") {
-      ctx.moveTo(0, -this.r);
-      ctx.lineTo(this.r, this.r);
-      ctx.lineTo(-this.r, this.r);
+
+    if (this.type === "chaser") {
+      // dragonfly: diamond body + a pair of flickering wings
+      const flap = Math.sin(this.wingPhase) * 0.5 + 0.5;
+      ctx.strokeStyle = "rgba(220,255,250,0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(-2, 0, this.r * 1.3, this.r * 0.5 * (0.4 + flap), Math.PI / 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(-2, 0, this.r * 1.3, this.r * 0.5 * (0.4 + flap), -Math.PI / 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(this.r, 0);
+      ctx.lineTo(0, -this.r * 0.55);
+      ctx.lineTo(-this.r * 1.6, 0);
+      ctx.lineTo(0, this.r * 0.55);
       ctx.closePath();
-    } else if (this.type === "boss") {
-      const spikes = 10;
-      for (let i = 0; i < spikes; i++) {
-        const a = (i / spikes) * Math.PI * 2;
-        const rr = i % 2 === 0 ? this.r : this.r * 0.72;
-        const px = Math.cos(a) * rr;
-        const py = Math.sin(a) * rr;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-    } else {
+      ctx.fill();
+    } else if (this.type === "shooter") {
+      // bee: round body with dark stripes
+      ctx.beginPath();
       ctx.arc(0, 0, this.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(30,20,10,0.75)";
+      ctx.fillRect(-this.r, -this.r * 0.35, this.r * 2, this.r * 0.28);
+      ctx.fillRect(-this.r, this.r * 0.1, this.r * 2, this.r * 0.28);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(2, -this.r - 2, this.r * 0.6, this.r * 0.35, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.type === "brute") {
+      // crow: dark rounded body with a small beak
+      ctx.beginPath();
+      ctx.arc(0, 0, this.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f59e0b";
+      ctx.beginPath();
+      ctx.moveTo(this.r * 0.7, -4);
+      ctx.lineTo(this.r * 1.4, 0);
+      ctx.lineTo(this.r * 0.7, 4);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // hawk boss: swept wings + body + hooked beak
+      const flap = Math.sin(this.wingPhase) * 8;
+      ctx.fillStyle = "#5c3317";
+      ctx.beginPath();
+      ctx.moveTo(-6, 0);
+      ctx.lineTo(-this.r * 1.6, -this.r * 0.9 - flap);
+      ctx.lineTo(-this.r * 0.9, -this.r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-6, 0);
+      ctx.lineTo(-this.r * 1.6, this.r * 0.9 + flap);
+      ctx.lineTo(-this.r * 0.9, this.r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.r * 0.85, this.r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#78350f";
+      ctx.beginPath();
+      ctx.arc(this.r * 0.6, 0, this.r * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.moveTo(this.r * 0.95, -6);
+      ctx.lineTo(this.r * 1.3, 0);
+      ctx.lineTo(this.r * 0.95, 6);
+      ctx.closePath();
+      ctx.fill();
     }
-    ctx.fill();
     ctx.restore();
 
     // small hp bar for non-boss enemies (boss uses the HUD bar)
@@ -411,33 +476,27 @@ class Enemy {
   }
 }
 
-// Drifting asteroid hazard: not part of the enemy roster (doesn't block
-// wave/stage progression), just an environmental obstacle.
-class Asteroid {
+// Wind-blown raindrop hazard: not part of the enemy roster (doesn't block
+// wave/stage progression), just an environmental obstacle in the storm.
+class Raindrop {
   constructor() {
-    const edge = Math.floor(Math.random() * 4);
     const margin = 40;
-    if (edge === 0) { this.x = -margin; this.y = Math.random() * H; }
-    else if (edge === 1) { this.x = W + margin; this.y = Math.random() * H; }
-    else if (edge === 2) { this.x = Math.random() * W; this.y = -margin; }
-    else { this.x = Math.random() * W; this.y = H + margin; }
-    const target = { x: Math.random() * W, y: Math.random() * H };
-    const ang = Math.atan2(target.y - this.y, target.x - this.x);
-    const speed = 40 + Math.random() * 50;
-    this.vx = Math.cos(ang) * speed;
-    this.vy = Math.sin(ang) * speed;
-    this.r = 14 + Math.random() * 12;
-    this.hp = 15;
-    this.rot = Math.random() * Math.PI * 2;
-    this.rotSpeed = (Math.random() - 0.5) * 1.5;
+    this.x = Math.random() * (W + 200) - 100;
+    this.y = -margin;
+    const speed = 260 + Math.random() * 140;
+    const windAngle = Math.PI / 2 + 0.35; // falling down and drifting sideways
+    this.vx = Math.cos(windAngle) * speed;
+    this.vy = Math.sin(windAngle) * speed;
+    this.len = 14 + Math.random() * 10;
+    this.r = 6;
+    this.hp = 8;
     this.dead = false;
-    this.contactDmg = 16;
+    this.contactDmg = 8;
   }
   update(dt, player) {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
-    this.rot += this.rotSpeed * dt;
-    if (this.x < -80 || this.x > W + 80 || this.y < -80 || this.y > H + 80) {
+    if (this.x > W + 80 || this.y > H + 80) {
       this.dead = true;
     }
     if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
@@ -448,29 +507,21 @@ class Asteroid {
     this.hp -= dmg;
     if (this.hp <= 0) {
       this.dead = true;
-      score += 5;
-      spawnExplosion(this.x, this.y, "#c4a077", 10);
+      score += 3;
+      spawnExplosion(this.x, this.y, "#bfe3ff", 6);
     }
   }
   draw() {
+    const ang = Math.atan2(this.vy, this.vx);
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.rotate(this.rot);
-    ctx.fillStyle = "#8a715a";
-    ctx.strokeStyle = "#5c4a3a";
-    ctx.lineWidth = 2;
+    ctx.rotate(ang);
+    ctx.strokeStyle = "rgba(191, 227, 255, 0.85)";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
     ctx.beginPath();
-    const spikes = 7;
-    for (let i = 0; i < spikes; i++) {
-      const a = (i / spikes) * Math.PI * 2;
-      const rr = this.r * (0.75 + ((i * 37) % 10) / 40);
-      const px = Math.cos(a) * rr;
-      const py = Math.sin(a) * rr;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(-this.len, 0);
+    ctx.lineTo(this.len, 0);
     ctx.stroke();
     ctx.restore();
   }
@@ -521,7 +572,7 @@ function spawnMuzzle(x, y, ang) {
 // ---------- Game state ----------
 let player, bullets, enemies, hazards, particles, score, shake;
 let stageIndex, waveIndex, waveTimer, running, spawning;
-let bossSpawned, asteroidTimer;
+let bossSpawned, hazardTimer;
 
 function spawnWave(wave) {
   const margin = 40;
@@ -548,7 +599,7 @@ function spawnWave(wave) {
 
 function spawnBoss() {
   enemies.push(new Enemy("boss", W / 2, -60));
-  showBanner("BOSS", 1600);
+  showBanner("タカが現れた!", 1600);
   bossHpWrap.classList.add("visible");
 }
 
@@ -566,7 +617,7 @@ function startStage(idx) {
   stageIndex = idx;
   waveIndex = 0;
   bossSpawned = false;
-  asteroidTimer = 1.5;
+  hazardTimer = 1.5;
   bossHpWrap.classList.remove("visible");
   stageNumEl.textContent = String(stageIndex + 1);
   showBanner(`STAGE ${stageIndex + 1} - ${STAGES[stageIndex].name}`, 1600);
@@ -609,11 +660,11 @@ function update(dt) {
   enemies.forEach((e) => e.update(dt, player));
 
   const stage = STAGES[stageIndex];
-  if (stage.hazard === "asteroids") {
-    asteroidTimer -= dt;
-    if (asteroidTimer <= 0) {
-      asteroidTimer = 1.0 + Math.random() * 1.2;
-      hazards.push(new Asteroid());
+  if (stage.hazard === "raindrops") {
+    hazardTimer -= dt;
+    if (hazardTimer <= 0) {
+      hazardTimer = 0.12 + Math.random() * 0.1;
+      hazards.push(new Raindrop());
     }
   }
   hazards.forEach((h) => h.update(dt, player));
@@ -692,6 +743,79 @@ function update(dt) {
   scoreNumEl.textContent = String(score);
 }
 
+function drawClouds() {
+  const t = performance.now() * 0.015;
+  ctx.fillStyle = "#ffffff";
+  for (let i = 0; i < 7; i++) {
+    const x = ((i * 160 + t * (0.6 + (i % 3) * 0.2)) % (W + 220)) - 110;
+    const y = 60 + ((i * 83) % (H - 140));
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 42, 18, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 26, y - 8, 28, 15, 0, 0, Math.PI * 2);
+    ctx.ellipse(x - 24, y - 4, 24, 13, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawRainAmbient() {
+  const t = performance.now() * 0.001;
+  ctx.strokeStyle = "rgba(220,235,255,0.35)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 60; i++) {
+    const seedX = (i * 53.7) % (W + 200) - 100;
+    const speed = 400 + (i % 5) * 60;
+    const y = (((i * 47) % H) + t * speed) % (H + 40) - 20;
+    const x = seedX + y * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 6, y - 14);
+    ctx.stroke();
+  }
+}
+
+function drawSunsetAmbient() {
+  const t = performance.now() * 0.008;
+  ctx.fillStyle = "#ffd8a8";
+  for (let i = 0; i < 5; i++) {
+    const x = ((i * 200 + t * 0.4) % (W + 200)) - 100;
+    const y = 50 + i * 40;
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 70, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "rgba(30,15,40,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  ctx.lineTo(0, H - 90);
+  ctx.lineTo(120, H - 150);
+  ctx.lineTo(230, H - 100);
+  ctx.lineTo(360, H - 170);
+  ctx.lineTo(480, H - 110);
+  ctx.lineTo(620, H - 160);
+  ctx.lineTo(760, H - 90);
+  ctx.lineTo(W, H - 130);
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawSkyBackground(theme) {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, theme.sky[0]);
+  grad.addColorStop(1, theme.sky[1]);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  if (theme.ambient === "clouds") drawClouds();
+  else if (theme.ambient === "rain") drawRainAmbient();
+  else if (theme.ambient === "sunset") drawSunsetAmbient();
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
 
@@ -700,21 +824,7 @@ function draw() {
     ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
   }
 
-  const theme = STAGES[stageIndex].theme;
-
-  // stage tint overlay
-  ctx.fillStyle = theme.tint;
-  ctx.fillRect(0, 0, W, H);
-
-  // starfield background dots (cheap, stage-tinted)
-  for (let i = 0; i < 40; i++) {
-    const sx = (i * 137.5) % W;
-    const sy = (i * 91.3 + performance.now() * 0.01) % H;
-    ctx.globalAlpha = 0.15 + ((i * 7) % 10) / 40;
-    ctx.fillStyle = `rgba(${theme.star}, 1)`;
-    ctx.fillRect(sx, sy, 2, 2);
-  }
-  ctx.globalAlpha = 1;
+  drawSkyBackground(STAGES[stageIndex].theme);
 
   hazards.forEach((h) => h.draw());
   particles.forEach((p) => p.draw());
