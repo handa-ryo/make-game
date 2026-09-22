@@ -5,12 +5,13 @@ const ctx = canvas.getContext("2d");
 const W = canvas.width;
 const H = canvas.height;
 
-const hpBarInner = document.getElementById("hp-bar-inner");
+const heartsEl = document.getElementById("hearts");
 const stageNumEl = document.getElementById("stage-num");
 const scoreNumEl = document.getElementById("score-num");
 const stageBanner = document.getElementById("stage-banner");
-const bossHpWrap = document.getElementById("boss-hp-wrap");
-const bossHpInner = document.getElementById("boss-hp-inner");
+const progressWrap = document.getElementById("progress-wrap");
+const progressLabel = document.getElementById("progress-label");
+const progressInner = document.getElementById("progress-inner");
 const levelLabelEl = document.getElementById("level-label");
 const xpBarInner = document.getElementById("xp-bar-inner");
 
@@ -54,7 +55,6 @@ function drawBunchou(g, scheme, scale) {
   g.save();
   g.scale(scale, scale);
 
-  // tail
   g.fillStyle = scheme.head;
   g.beginPath();
   g.moveTo(-10, -4);
@@ -63,19 +63,16 @@ function drawBunchou(g, scheme, scale) {
   g.closePath();
   g.fill();
 
-  // body
   g.fillStyle = scheme.body;
   g.beginPath();
   g.ellipse(0, 0, 13, 10, 0, 0, Math.PI * 2);
   g.fill();
 
-  // head
   g.fillStyle = scheme.head;
   g.beginPath();
   g.arc(9, -2, 8, 0, Math.PI * 2);
   g.fill();
 
-  // cheek patch
   if (scheme.cheek) {
     g.fillStyle = scheme.cheek;
     g.beginPath();
@@ -83,7 +80,6 @@ function drawBunchou(g, scheme, scale) {
     g.fill();
   }
 
-  // beak
   g.fillStyle = scheme.beak;
   g.beginPath();
   g.moveTo(16, -3.2);
@@ -92,7 +88,6 @@ function drawBunchou(g, scheme, scale) {
   g.closePath();
   g.fill();
 
-  // eye
   g.strokeStyle = scheme.eyeRing;
   g.lineWidth = 1.4;
   g.beginPath();
@@ -104,569 +99,6 @@ function drawBunchou(g, scheme, scale) {
   g.fill();
 
   g.restore();
-}
-
-// ---------- Stage definitions ----------
-// Each stage has waves (spawned as the previous wave's enemies clear), a
-// sky gradient + ambient effect, an optional environmental hazard, and an
-// optional boss that appears after the last wave.
-const STAGES = [
-  {
-    name: "青空",
-    theme: { sky: ["#8fd3ff", "#e6f7ff"], ambient: "clouds" },
-    hazard: null,
-    boss: false,
-    waves: [
-      { chasers: 3, shooters: 0 },
-      { chasers: 4, shooters: 1, brutes: 1 },
-    ],
-  },
-  {
-    name: "雨雲",
-    theme: { sky: ["#5b6b7d", "#98a6b3"], ambient: "rain" },
-    hazard: "raindrops",
-    boss: false,
-    waves: [
-      { chasers: 4, shooters: 2, brutes: 1 },
-      { chasers: 5, shooters: 2, brutes: 1 },
-      { chasers: 3, shooters: 3, brutes: 1 },
-    ],
-  },
-  {
-    name: "夕焼け山脈",
-    theme: { sky: ["#3b2350", "#ff8a5c"], ambient: "sunset" },
-    hazard: "hail",
-    boss: true,
-    waves: [
-      { chasers: 5, shooters: 3, brutes: 1 },
-      { chasers: 6, shooters: 3, brutes: 2 },
-    ],
-  },
-];
-
-// ---------- Leveling: food -> XP -> new techniques ----------
-const LEVEL_UPS = [
-  { threshold: 50, label: "Lv.2 わかどり", msg: "れんしゃがはやくなった!", apply: (p) => (p.fireRate = 0.1) },
-  { threshold: 140, label: "Lv.3 はばたきどり", msg: "3WAYショットをおぼえた!", apply: (p) => (p.spread = true) },
-  { threshold: 280, label: "Lv.4 エースバード", msg: "つらぬき弾をおぼえた!", apply: (p) => (p.pierceHits = 2) },
-];
-
-// ---------- Input ----------
-const keys = new Set();
-const mouse = { x: W / 2, y: H / 2, down: false };
-
-window.addEventListener("keydown", (e) => {
-  keys.add(e.key.toLowerCase());
-});
-window.addEventListener("keyup", (e) => {
-  keys.delete(e.key.toLowerCase());
-});
-canvas.addEventListener("mousemove", (e) => {
-  const rect = canvas.getBoundingClientRect();
-  mouse.x = ((e.clientX - rect.left) / rect.width) * W;
-  mouse.y = ((e.clientY - rect.top) / rect.height) * H;
-});
-canvas.addEventListener("mousedown", () => (mouse.down = true));
-window.addEventListener("mouseup", () => (mouse.down = false));
-canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
-function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
-}
-function dist(ax, ay, bx, by) {
-  return Math.hypot(ax - bx, ay - by);
-}
-
-// ---------- Entities ----------
-class Player {
-  constructor(scheme) {
-    this.scheme = scheme;
-    this.x = W / 2;
-    this.y = H / 2;
-    this.r = 14;
-    this.speed = 260;
-    this.maxHp = 100;
-    this.hp = this.maxHp;
-    this.fireCooldown = 0;
-    this.fireRate = 0.14;
-    this.invuln = 0;
-    this.level = 1;
-    this.xp = 0;
-    this.spread = false;
-    this.pierceHits = 1;
-  }
-
-  gainXp(amount) {
-    this.xp += amount;
-    while (this.level - 1 < LEVEL_UPS.length && this.xp >= LEVEL_UPS[this.level - 1].threshold) {
-      const lv = LEVEL_UPS[this.level - 1];
-      lv.apply(this);
-      this.level++;
-      showBanner(`${lv.label} — ${lv.msg}`, 1800);
-      spawnExplosion(this.x, this.y, "#fde68a", 20);
-    }
-  }
-
-  update(dt) {
-    let dx = 0;
-    let dy = 0;
-    if (keys.has("w") || keys.has("arrowup")) dy -= 1;
-    if (keys.has("s") || keys.has("arrowdown")) dy += 1;
-    if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
-    if (keys.has("d") || keys.has("arrowright")) dx += 1;
-    if (dx !== 0 || dy !== 0) {
-      const len = Math.hypot(dx, dy);
-      dx /= len;
-      dy /= len;
-      this.x += dx * this.speed * dt;
-      this.y += dy * this.speed * dt;
-    }
-    this.x = clamp(this.x, this.r, W - this.r);
-    this.y = clamp(this.y, this.r, H - this.r);
-
-    this.fireCooldown -= dt;
-    if (mouse.down && this.fireCooldown <= 0) {
-      this.fireCooldown = this.fireRate;
-      const ang = Math.atan2(mouse.y - this.y, mouse.x - this.x);
-      bullets.push(new Bullet(this.x, this.y, ang, 520, "player", this.pierceHits));
-      if (this.spread) {
-        bullets.push(new Bullet(this.x, this.y, ang - 0.22, 520, "player", this.pierceHits));
-        bullets.push(new Bullet(this.x, this.y, ang + 0.22, 520, "player", this.pierceHits));
-      }
-      spawnMuzzle(this.x, this.y, ang);
-    }
-    if (this.invuln > 0) this.invuln -= dt;
-  }
-
-  hit(dmg) {
-    if (this.invuln > 0) return;
-    this.hp -= dmg;
-    this.invuln = 0.5;
-    shake = Math.min(shake + 6, 16);
-    if (this.hp <= 0) {
-      this.hp = 0;
-      onGameOver();
-    }
-  }
-
-  draw() {
-    const ang = Math.atan2(mouse.y - this.y, mouse.x - this.x);
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    if (this.invuln > 0 && Math.floor(this.invuln * 20) % 2 === 0) {
-      ctx.globalAlpha = 0.4;
-    }
-    ctx.rotate(ang);
-    drawBunchou(ctx, this.scheme, 1);
-    ctx.restore();
-    ctx.globalAlpha = 1;
-  }
-}
-
-const BULLET_COLORS = { player: "#fde68a", companion: "#7dd3fc", enemy: "#f87171" };
-
-class Bullet {
-  constructor(x, y, angle, speed, owner, hits) {
-    this.x = x;
-    this.y = y;
-    this.vx = Math.cos(angle) * speed;
-    this.vy = Math.sin(angle) * speed;
-    this.owner = owner;
-    this.r = owner === "enemy" ? 5 : 4;
-    this.dead = false;
-    this.dmg = owner === "player" ? 10 : owner === "companion" ? 6 : 8;
-    this.hits = hits || 1;
-  }
-  update(dt) {
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) {
-      this.dead = true;
-    }
-  }
-  draw() {
-    const color = BULLET_COLORS[this.owner];
-    ctx.beginPath();
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-  }
-}
-
-class Enemy {
-  constructor(type, x, y) {
-    this.type = type; // "chaser" | "shooter" | "brute" | "boss"
-    this.x = x;
-    this.y = y;
-    this.dead = false;
-    this.fireCooldown = 1 + Math.random();
-    this.isBoss = type === "boss";
-
-    if (type === "chaser") {
-      // dragonfly: fast, direct
-      this.r = 11;
-      this.speed = 100 + Math.random() * 25;
-      this.hp = 20;
-      this.maxHp = 20;
-      this.color = "#2dd4bf";
-      this.contactDmg = 12;
-      this.score = 10;
-      this.wingPhase = Math.random() * Math.PI * 2;
-    } else if (type === "shooter") {
-      // bee: keeps its distance and stings from range
-      this.r = 12;
-      this.speed = 60;
-      this.hp = 26;
-      this.maxHp = 26;
-      this.color = "#fbbf24";
-      this.contactDmg = 8;
-      this.score = 20;
-      this.preferredDist = 220;
-    } else if (type === "brute") {
-      // crow: tough, harasses in bad weather
-      this.r = 19;
-      this.speed = 58;
-      this.hp = 90;
-      this.maxHp = 90;
-      this.color = "#374151";
-      this.contactDmg = 20;
-      this.score = 50;
-    } else {
-      // hawk boss
-      this.r = 40;
-      this.speed = 70;
-      this.hp = 420;
-      this.maxHp = 420;
-      this.color = "#92400e";
-      this.contactDmg = 22;
-      this.score = 500;
-      this.burstCooldown = 2.2;
-      this.aimCooldown = 1.1;
-      this.dir = 1;
-      this.wingPhase = 0;
-    }
-  }
-
-  update(dt, player) {
-    const d = dist(this.x, this.y, player.x, player.y);
-    const ang = Math.atan2(player.y - this.y, player.x - this.x);
-
-    if (this.type === "shooter") {
-      if (d > this.preferredDist + 20) {
-        this.x += Math.cos(ang) * this.speed * dt;
-        this.y += Math.sin(ang) * this.speed * dt;
-      } else if (d < this.preferredDist - 20) {
-        this.x -= Math.cos(ang) * this.speed * dt;
-        this.y -= Math.sin(ang) * this.speed * dt;
-      }
-      this.fireCooldown -= dt;
-      if (this.fireCooldown <= 0 && d < 500) {
-        this.fireCooldown = 1.4 + Math.random() * 0.6;
-        bullets.push(new Bullet(this.x, this.y, ang, 280, "enemy"));
-      }
-    } else if (this.type === "boss") {
-      // patrols the upper sky, alternates aimed shots and radial bursts
-      this.wingPhase += dt * 6;
-      this.x += this.dir * this.speed * dt;
-      if (this.x < 120 || this.x > W - 120) this.dir *= -1;
-      this.y = 130 + Math.sin(performance.now() * 0.0012) * 18;
-
-      this.aimCooldown -= dt;
-      if (this.aimCooldown <= 0) {
-        this.aimCooldown = 1.1;
-        for (let i = -1; i <= 1; i++) {
-          bullets.push(new Bullet(this.x, this.y, ang + i * 0.16, 260, "enemy"));
-        }
-      }
-      this.burstCooldown -= dt;
-      if (this.burstCooldown <= 0) {
-        this.burstCooldown = 2.4;
-        const n = 14;
-        for (let i = 0; i < n; i++) {
-          bullets.push(new Bullet(this.x, this.y, (i / n) * Math.PI * 2, 190, "enemy"));
-        }
-      }
-    } else {
-      // chaser (dragonfly) or brute (crow)
-      if (this.type === "chaser") this.wingPhase += dt * 22;
-      this.x += Math.cos(ang) * this.speed * dt;
-      this.y += Math.sin(ang) * this.speed * dt;
-    }
-
-    this.x = clamp(this.x, this.r, W - this.r);
-    this.y = clamp(this.y, this.r, H - this.r);
-
-    if (d < this.r + player.r) {
-      player.hit(this.contactDmg * dt * 4);
-    }
-  }
-
-  hit(dmg) {
-    this.hp -= dmg;
-    if (this.hp <= 0) {
-      this.dead = true;
-      score += this.score;
-      spawnExplosion(this.x, this.y, this.color, this.isBoss ? 50 : 16);
-    }
-  }
-
-  draw() {
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    ctx.fillStyle = this.color;
-
-    if (this.type === "chaser") {
-      // dragonfly: diamond body + a pair of flickering wings
-      const flap = Math.sin(this.wingPhase) * 0.5 + 0.5;
-      ctx.strokeStyle = "rgba(220,255,250,0.6)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.ellipse(-2, 0, this.r * 1.3, this.r * 0.5 * (0.4 + flap), Math.PI / 5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(-2, 0, this.r * 1.3, this.r * 0.5 * (0.4 + flap), -Math.PI / 5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(this.r, 0);
-      ctx.lineTo(0, -this.r * 0.55);
-      ctx.lineTo(-this.r * 1.6, 0);
-      ctx.lineTo(0, this.r * 0.55);
-      ctx.closePath();
-      ctx.fill();
-    } else if (this.type === "shooter") {
-      // bee: round body with dark stripes
-      ctx.beginPath();
-      ctx.arc(0, 0, this.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(30,20,10,0.75)";
-      ctx.fillRect(-this.r, -this.r * 0.35, this.r * 2, this.r * 0.28);
-      ctx.fillRect(-this.r, this.r * 0.1, this.r * 2, this.r * 0.28);
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.beginPath();
-      ctx.ellipse(2, -this.r - 2, this.r * 0.6, this.r * 0.35, 0.3, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (this.type === "brute") {
-      // crow: dark rounded body with a small beak
-      ctx.beginPath();
-      ctx.arc(0, 0, this.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#f59e0b";
-      ctx.beginPath();
-      ctx.moveTo(this.r * 0.7, -4);
-      ctx.lineTo(this.r * 1.4, 0);
-      ctx.lineTo(this.r * 0.7, 4);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // hawk boss: swept wings + body + hooked beak
-      const flap = Math.sin(this.wingPhase) * 8;
-      ctx.fillStyle = "#5c3317";
-      ctx.beginPath();
-      ctx.moveTo(-6, 0);
-      ctx.lineTo(-this.r * 1.6, -this.r * 0.9 - flap);
-      ctx.lineTo(-this.r * 0.9, -this.r * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-6, 0);
-      ctx.lineTo(-this.r * 1.6, this.r * 0.9 + flap);
-      ctx.lineTo(-this.r * 0.9, this.r * 0.3);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = this.color;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, this.r * 0.85, this.r * 0.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = "#78350f";
-      ctx.beginPath();
-      ctx.arc(this.r * 0.6, 0, this.r * 0.42, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = "#fde68a";
-      ctx.beginPath();
-      ctx.moveTo(this.r * 0.95, -6);
-      ctx.lineTo(this.r * 1.3, 0);
-      ctx.lineTo(this.r * 0.95, 6);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // small hp bar for non-boss enemies (boss uses the HUD bar)
-    if (!this.isBoss && this.hp < this.maxHp) {
-      const w = this.r * 2;
-      ctx.fillStyle = "rgba(0,0,0,0.5)";
-      ctx.fillRect(this.x - w / 2, this.y - this.r - 10, w, 4);
-      ctx.fillStyle = "#4ade80";
-      ctx.fillRect(this.x - w / 2, this.y - this.r - 10, w * (this.hp / this.maxHp), 4);
-    }
-  }
-}
-
-// Wind-blown raindrop hazard: not part of the enemy roster (doesn't block
-// wave/stage progression), just an environmental obstacle in the storm.
-class Raindrop {
-  constructor() {
-    const margin = 40;
-    this.x = Math.random() * (W + 200) - 100;
-    this.y = -margin;
-    const speed = 260 + Math.random() * 140;
-    const windAngle = Math.PI / 2 + 0.35; // falling down and drifting sideways
-    this.vx = Math.cos(windAngle) * speed;
-    this.vy = Math.sin(windAngle) * speed;
-    this.len = 14 + Math.random() * 10;
-    this.r = 6;
-    this.hp = 8;
-    this.dead = false;
-    this.contactDmg = 8;
-  }
-  update(dt, player) {
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    if (this.x > W + 80 || this.y > H + 80) {
-      this.dead = true;
-    }
-    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
-      player.hit(this.contactDmg * dt * 4);
-    }
-  }
-  hit(dmg) {
-    this.hp -= dmg;
-    if (this.hp <= 0) {
-      this.dead = true;
-      score += 3;
-      spawnExplosion(this.x, this.y, "#bfe3ff", 6);
-    }
-  }
-  draw() {
-    const ang = Math.atan2(this.vy, this.vx);
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    ctx.rotate(ang);
-    ctx.strokeStyle = "rgba(191, 227, 255, 0.85)";
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(-this.len, 0);
-    ctx.lineTo(this.len, 0);
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-// Hailstone hazard for the mountain stage: bigger and harder-hitting than
-// rain, falls mostly straight down with a light drift.
-class Hail {
-  constructor() {
-    const margin = 40;
-    this.x = Math.random() * (W + 160) - 80;
-    this.y = -margin;
-    const speed = 200 + Math.random() * 90;
-    const windAngle = Math.PI / 2 + (Math.random() - 0.5) * 0.3;
-    this.vx = Math.cos(windAngle) * speed * 0.5;
-    this.vy = Math.sin(windAngle) * speed;
-    this.r = 8 + Math.random() * 5;
-    this.hp = 12;
-    this.rot = Math.random() * Math.PI * 2;
-    this.rotSpeed = (Math.random() - 0.5) * 4;
-    this.dead = false;
-    this.contactDmg = 14;
-  }
-  update(dt, player) {
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    this.rot += this.rotSpeed * dt;
-    if (this.y > H + 60) this.dead = true;
-    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
-      player.hit(this.contactDmg * dt * 4);
-    }
-  }
-  hit(dmg) {
-    this.hp -= dmg;
-    if (this.hp <= 0) {
-      this.dead = true;
-      score += 4;
-      spawnExplosion(this.x, this.y, "#e0f2fe", 8);
-    }
-  }
-  draw() {
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    ctx.rotate(this.rot);
-    ctx.fillStyle = "#e2f3ff";
-    ctx.strokeStyle = "#9fc9e8";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    const spikes = 6;
-    for (let i = 0; i < spikes; i++) {
-      const a = (i / spikes) * Math.PI * 2;
-      const rr = this.r * (0.8 + ((i * 23) % 10) / 30);
-      const px = Math.cos(a) * rr;
-      const py = Math.sin(a) * rr;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-// Food: 粟玉/木の実/フルーツ scattered across every stage. Collecting one
-// grants the player XP toward their next level and technique.
-const FOOD_KINDS = [
-  { type: "awadama", xp: 10, color: "#fde68a", r: 5, weight: 0.55 },
-  { type: "nut", xp: 18, color: "#b8895f", r: 6, weight: 0.3 },
-  { type: "fruit", xp: 28, color: "#f87171", r: 7, weight: 0.15 },
-];
-
-class Food {
-  constructor() {
-    const roll = Math.random();
-    let acc = 0;
-    let kind = FOOD_KINDS[0];
-    for (const k of FOOD_KINDS) {
-      acc += k.weight;
-      if (roll <= acc) {
-        kind = k;
-        break;
-      }
-    }
-    this.type = kind.type;
-    this.xp = kind.xp;
-    this.color = kind.color;
-    this.r = kind.r;
-    const margin = 60;
-    this.x = margin + Math.random() * (W - margin * 2);
-    this.y = margin + Math.random() * (H - margin * 2);
-    this.life = 9;
-    this.bob = Math.random() * Math.PI * 2;
-    this.dead = false;
-  }
-  update(dt, player) {
-    this.life -= dt;
-    this.bob += dt * 3;
-    if (this.life <= 0) this.dead = true;
-    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r + 4) {
-      this.dead = true;
-      player.gainXp(this.xp);
-      spawnExplosion(this.x, this.y, this.color, 8);
-    }
-  }
-  draw() {
-    ctx.globalAlpha = this.life < 2 ? clamp(this.life / 2, 0, 1) : 1;
-    ctx.fillStyle = this.color;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y + Math.sin(this.bob) * 2, this.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
 }
 
 function drawSparrow(g, scale) {
@@ -712,9 +144,220 @@ function drawSparrow(g, scale) {
   g.restore();
 }
 
+function drawHawk(g, color, r, wingPhase) {
+  const flap = Math.sin(wingPhase) * 8;
+  g.fillStyle = "#5c3317";
+  g.beginPath();
+  g.moveTo(-6, 0);
+  g.lineTo(-r * 1.6, -r * 0.9 - flap);
+  g.lineTo(-r * 0.9, -r * 0.3);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.moveTo(-6, 0);
+  g.lineTo(-r * 1.6, r * 0.9 + flap);
+  g.lineTo(-r * 0.9, r * 0.3);
+  g.closePath();
+  g.fill();
+
+  g.fillStyle = color;
+  g.beginPath();
+  g.ellipse(0, 0, r * 0.85, r * 0.6, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "#78350f";
+  g.beginPath();
+  g.arc(r * 0.6, 0, r * 0.42, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "#fde68a";
+  g.beginPath();
+  g.moveTo(r * 0.95, -6);
+  g.lineTo(r * 1.3, 0);
+  g.lineTo(r * 0.95, 6);
+  g.closePath();
+  g.fill();
+}
+
+// ---------- Stage definitions ----------
+// Side-scrolling: the world drifts left at scrollSpeed; reaching `distance`
+// clears the stage. `spawns` gives [min,max] seconds between hazard spawns;
+// omitting a hazard key (e.g. hail on stages 1-2) disables it entirely.
+const STAGES = [
+  {
+    name: "青空",
+    theme: { sky: ["#8fd3ff", "#e6f7ff"], ambient: "clouds" },
+    scrollSpeed: 95,
+    distance: 2600,
+    hideoutStyle: "cloud",
+    hawk: false,
+    spawns: { wind: [4.5, 6.5], debris: [2.4, 3.6], crow: [5.5, 7.5], hideout: [3.2, 4.6], food: [2.6, 4] },
+  },
+  {
+    name: "雨雲",
+    theme: { sky: ["#5b6b7d", "#98a6b3"], ambient: "rain" },
+    scrollSpeed: 108,
+    distance: 3000,
+    hideoutStyle: "cloud",
+    hawk: false,
+    spawns: { wind: [4, 6], debris: [2.1, 3.2], crow: [4.5, 6.5], hideout: [3, 4.3], food: [2.6, 4] },
+  },
+  {
+    name: "夕焼け山脈",
+    theme: { sky: ["#3b2350", "#ff8a5c"], ambient: "sunset" },
+    scrollSpeed: 118,
+    distance: 3400,
+    hideoutStyle: "leaf",
+    hawk: true,
+    spawns: {
+      wind: [3.6, 5.4],
+      debris: [2, 3],
+      hail: [1.8, 2.8],
+      crow: [4, 6],
+      hideout: [2.8, 4],
+      food: [2.6, 4],
+    },
+  },
+];
+
+function rand(range) {
+  return range[0] + Math.random() * (range[1] - range[0]);
+}
+
+// ---------- Leveling: food -> XP -> new avoidance techniques ----------
+const LEVEL_UPS = [
+  { threshold: 50, label: "Lv.2 わかどり", msg: "威嚇の間合いが広がった!", apply: (p) => (p.shooRadius = 170) },
+  { threshold: 140, label: "Lv.3 はばたきどり", msg: "強い風にも負けなくなった!", apply: (p) => (p.windResist = 0.5) },
+  { threshold: 280, label: "Lv.4 エースバード", msg: "とっさのかわし技をおぼえた!", apply: (p) => (p.dashUnlocked = true) },
+];
+
+// ---------- Input ----------
+const keys = new Set();
+window.addEventListener("keydown", (e) => {
+  keys.add(e.key.toLowerCase());
+});
+window.addEventListener("keyup", (e) => {
+  keys.delete(e.key.toLowerCase());
+});
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+function dist(ax, ay, bx, by) {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+// ---------- Entities ----------
+class Player {
+  constructor(scheme) {
+    this.scheme = scheme;
+    this.x = 200;
+    this.y = H / 2;
+    this.r = 14;
+    this.xMin = 60;
+    this.xMax = 560;
+    this.yMin = 50;
+    this.yMax = 550;
+    this.baseSpeed = 240;
+    this.maxHearts = 5;
+    this.hearts = this.maxHearts;
+    this.invuln = 0;
+    this.hidden = false;
+    this.vy = 0;
+    this.level = 1;
+    this.xp = 0;
+    this.shooRadius = 120;
+    this.shooCooldownMax = 2.2;
+    this.shooCooldown = 0;
+    this.windResist = 1;
+    this.dashUnlocked = false;
+    this.dashCooldownMax = 3.5;
+    this.dashCooldown = 0;
+    this.dashTimer = 0;
+  }
+
+  gainXp(amount) {
+    this.xp += amount;
+    while (this.level - 1 < LEVEL_UPS.length && this.xp >= LEVEL_UPS[this.level - 1].threshold) {
+      const lv = LEVEL_UPS[this.level - 1];
+      lv.apply(this);
+      this.level++;
+      showBanner(`${lv.label} — ${lv.msg}`, 1800);
+      spawnExplosion(this.x, this.y, "#fde68a", 20);
+    }
+  }
+
+  update(dt) {
+    let dx = 0;
+    let dy = 0;
+    if (keys.has("w") || keys.has("arrowup")) dy -= 1;
+    if (keys.has("s") || keys.has("arrowdown")) dy += 1;
+    if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
+    if (keys.has("d") || keys.has("arrowright")) dx += 1;
+    this.vy = dy;
+
+    let spd = this.baseSpeed;
+    if (this.dashTimer > 0) spd *= 2.6;
+    if (dx !== 0 || dy !== 0) {
+      const len = Math.hypot(dx, dy);
+      dx /= len;
+      dy /= len;
+      this.x += dx * spd * dt;
+      this.y += dy * spd * dt;
+    }
+    this.x = clamp(this.x, this.xMin, this.xMax);
+    this.y = clamp(this.y, this.yMin, this.yMax);
+
+    this.shooCooldown -= dt;
+    if (keys.has(" ") && this.shooCooldown <= 0) {
+      this.shooCooldown = this.shooCooldownMax;
+      doShoo(this.x, this.y, this.shooRadius);
+    }
+
+    this.dashCooldown -= dt;
+    if (this.dashUnlocked && keys.has("shift") && this.dashCooldown <= 0) {
+      this.dashCooldown = this.dashCooldownMax;
+      this.dashTimer = 0.25;
+      this.invuln = Math.max(this.invuln, 0.35);
+    }
+    if (this.dashTimer > 0) this.dashTimer -= dt;
+    if (this.invuln > 0) this.invuln -= dt;
+  }
+
+  hit(amount, kbx, kby, strong) {
+    if (this.invuln > 0) return;
+    this.hearts -= amount;
+    this.invuln = strong ? 1.2 : 0.9;
+    shake = Math.min(shake + (strong ? 10 : 6), 18);
+    const klen = Math.hypot(kbx, kby) || 1;
+    const kb = strong ? 110 : 50;
+    this.x = clamp(this.x + (kbx / klen) * kb, this.xMin, this.xMax);
+    this.y = clamp(this.y + (kby / klen) * kb, this.yMin, this.yMax);
+    if (this.hearts <= 0) {
+      this.hearts = 0;
+      onGameOver();
+    }
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    if (this.invuln > 0 && Math.floor(this.invuln * 20) % 2 === 0) {
+      ctx.globalAlpha = 0.4;
+    } else if (this.hidden) {
+      ctx.globalAlpha = 0.5;
+    }
+    const bank = clamp(this.vy * 0.35, -0.35, 0.35);
+    ctx.rotate(bank);
+    drawBunchou(ctx, this.scheme, 1);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+}
+
 // Wild sparrow: wanders until the player flies close, then becomes a
-// permanent companion (max one) that trails the player and auto-fires at
-// nearby enemies.
+// permanent companion (max one) that trails the player and, once it sees a
+// crow actively chasing, helps shoo it away.
 class Sparrow {
   constructor() {
     this.x = 120 + Math.random() * (W - 240);
@@ -722,9 +365,9 @@ class Sparrow {
     this.r = 9;
     this.state = "wild";
     this.wanderAngle = Math.random() * Math.PI * 2;
-    this.fireCooldown = 0;
+    this.shooCooldown = 0;
   }
-  update(dt, player, enemies) {
+  update(dt, player, crows) {
     if (this.state === "wild") {
       this.wanderAngle += (Math.random() - 0.5) * 2 * dt;
       this.x += Math.cos(this.wanderAngle) * 45 * dt;
@@ -738,38 +381,485 @@ class Sparrow {
       return;
     }
 
-    const targetX = player.x - 24;
-    const targetY = player.y - 20;
+    const targetX = player.x - 26;
+    const targetY = player.y - 6;
     this.x += (targetX - this.x) * Math.min(1, dt * 5);
     this.y += (targetY - this.y) * Math.min(1, dt * 5);
 
-    this.fireCooldown -= dt;
-    if (this.fireCooldown <= 0) {
-      let target = null;
-      let best = 260;
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const d = dist(this.x, this.y, e.x, e.y);
-        if (d < best) {
-          best = d;
-          target = e;
+    this.shooCooldown -= dt;
+    if (this.shooCooldown <= 0) {
+      for (const c of crows) {
+        if (c.dead || c.state !== "chase") continue;
+        if (dist(this.x, this.y, c.x, c.y) < 160) {
+          c.shoo();
+          this.shooCooldown = 2.5;
+          shooRings.push(new ShooRing(this.x, this.y));
+          break;
         }
-      }
-      if (target) {
-        this.fireCooldown = 0.85;
-        const ang = Math.atan2(target.y - this.y, target.x - this.x);
-        bullets.push(new Bullet(this.x, this.y, ang, 420, "companion"));
       }
     }
   }
   draw() {
-    const ang = this.state === "wild" ? this.wanderAngle : Math.atan2(mouse.y - this.y, mouse.x - this.x);
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.rotate(ang);
     drawSparrow(ctx, this.state === "companion" ? 0.9 : 0.8);
     ctx.restore();
   }
+}
+
+// Wind gust: a wide translucent band drifting left. No damage, just a
+// steady push while the player is inside it — dodge it or steer through.
+class WindGust {
+  constructor(scrollSpeed) {
+    this.x = W + 100;
+    this.bandY = 60 + Math.random() * (H - 260);
+    this.bandH = 150;
+    this.width = 170;
+    this.vx = -scrollSpeed;
+    this.dir = Math.random() < 0.5 ? -1 : 1;
+    this.pushStrength = 120;
+    this.dead = false;
+  }
+  update(dt, player) {
+    this.x += this.vx * dt;
+    if (this.x < -this.width - 60) this.dead = true;
+    if (
+      player.x > this.x - this.width / 2 &&
+      player.x < this.x + this.width / 2 &&
+      player.y > this.bandY &&
+      player.y < this.bandY + this.bandH
+    ) {
+      const push = this.pushStrength * player.windResist;
+      player.y = clamp(player.y + this.dir * push * dt, player.yMin, player.yMax);
+    }
+  }
+  draw() {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#e0f2fe";
+    ctx.fillRect(this.x - this.width / 2, this.bandY, this.width, this.bandH);
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = "#bfe3ff";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const cy = this.bandY + (this.bandH * (i + 0.5)) / 3;
+      const yOff = this.dir * 9;
+      ctx.beginPath();
+      ctx.moveTo(this.x - this.width / 2 + 10, cy);
+      ctx.lineTo(this.x, cy + yOff);
+      ctx.lineTo(this.x + this.width / 2 - 10, cy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// Flying debris: leaves / twigs / a stray bag drifting in on a light sine
+// wave. A single touch costs a heart and the debris disperses.
+class Debris {
+  constructor(scrollSpeed) {
+    const kinds = ["leaf", "twig", "bag"];
+    this.kind = kinds[Math.floor(Math.random() * kinds.length)];
+    this.x = W + 40;
+    this.baseY = 60 + Math.random() * (H - 120);
+    this.y = this.baseY;
+    this.vx = -(scrollSpeed + 50 + Math.random() * 50);
+    this.amp = 20 + Math.random() * 30;
+    this.freq = 1.5 + Math.random();
+    this.t = Math.random() * 10;
+    this.r = 12;
+    this.rot = Math.random() * Math.PI * 2;
+    this.rotSpeed = (Math.random() - 0.5) * 3;
+    this.dead = false;
+  }
+  update(dt, player) {
+    this.t += dt;
+    this.x += this.vx * dt;
+    this.y = this.baseY + Math.sin(this.t * this.freq) * this.amp;
+    this.rot += this.rotSpeed * dt;
+    if (this.x < -60) this.dead = true;
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
+      player.hit(1, player.x - this.x, player.y - this.y, false);
+      this.dead = true;
+    }
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    if (this.kind === "leaf") {
+      ctx.fillStyle = "#65a30d";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.r, this.r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#3f6212";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-this.r, 0);
+      ctx.lineTo(this.r, 0);
+      ctx.stroke();
+    } else if (this.kind === "twig") {
+      ctx.strokeStyle = "#78350f";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-this.r, -4);
+      ctx.lineTo(this.r, 4);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = "rgba(226,232,240,0.85)";
+      ctx.strokeStyle = "rgba(148,163,184,0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.r, this.r * 0.75, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// Hailstone hazard for the mountain stage: falls in on a diagonal, blown
+// by the same wind as everything else.
+class Hail {
+  constructor(scrollSpeed) {
+    this.x = W + 40 + Math.random() * 100;
+    this.y = -30;
+    this.vx = -(scrollSpeed * 0.6);
+    this.vy = 260 + Math.random() * 90;
+    this.r = 8 + Math.random() * 5;
+    this.rot = Math.random() * Math.PI * 2;
+    this.rotSpeed = (Math.random() - 0.5) * 4;
+    this.dead = false;
+  }
+  update(dt, player) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.rot += this.rotSpeed * dt;
+    if (this.y > H + 60 || this.x < -60) this.dead = true;
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
+      player.hit(1, player.x - this.x, player.y - this.y, false);
+      this.dead = true;
+    }
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.fillStyle = "#e2f3ff";
+    ctx.strokeStyle = "#9fc9e8";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const spikes = 6;
+    for (let i = 0; i < spikes; i++) {
+      const a = (i / spikes) * Math.PI * 2;
+      const rr = this.r * (0.8 + ((i * 23) % 10) / 30);
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// Hideout: a big soft cloud (or leaf cluster on the mountain stage) the
+// player can duck into. While overlapping, crows can't spot them.
+class Hideout {
+  constructor(scrollSpeed, style) {
+    this.style = style;
+    this.x = W + 120;
+    this.y = 60 + Math.random() * (H - 160);
+    this.vx = -(scrollSpeed * 0.65);
+    this.r = 75 + Math.random() * 25;
+    this.dead = false;
+  }
+  update(dt) {
+    this.x += this.vx * dt;
+    if (this.x < -this.r - 80) this.dead = true;
+  }
+  contains(player) {
+    return dist(this.x, this.y, player.x, player.y) < this.r * 0.85;
+  }
+  draw() {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    if (this.style === "cloud") {
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y, this.r, this.r * 0.62, 0, 0, Math.PI * 2);
+      ctx.ellipse(this.x + this.r * 0.5, this.y - this.r * 0.2, this.r * 0.6, this.r * 0.42, 0, 0, Math.PI * 2);
+      ctx.ellipse(this.x - this.r * 0.5, this.y + this.r * 0.1, this.r * 0.55, this.r * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = "#2f6e3a";
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const rr = this.r * (0.8 + ((i * 31) % 10) / 30);
+        const px = this.x + Math.cos(a) * rr;
+        const py = this.y + Math.sin(a) * rr * 0.75;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// Food: 粟玉/木の実/フルーツ drifting in from the right. Collecting one
+// grants XP toward the player's next level and technique.
+const FOOD_KINDS = [
+  { type: "awadama", xp: 10, color: "#fde68a", r: 5, weight: 0.55 },
+  { type: "nut", xp: 18, color: "#b8895f", r: 6, weight: 0.3 },
+  { type: "fruit", xp: 28, color: "#f87171", r: 7, weight: 0.15 },
+];
+
+class Food {
+  constructor(scrollSpeed) {
+    const roll = Math.random();
+    let acc = 0;
+    let kind = FOOD_KINDS[0];
+    for (const k of FOOD_KINDS) {
+      acc += k.weight;
+      if (roll <= acc) {
+        kind = k;
+        break;
+      }
+    }
+    this.type = kind.type;
+    this.xp = kind.xp;
+    this.color = kind.color;
+    this.r = kind.r;
+    this.x = W + 40;
+    this.y = 60 + Math.random() * (H - 120);
+    this.vx = -scrollSpeed;
+    this.bob = Math.random() * Math.PI * 2;
+    this.dead = false;
+  }
+  update(dt, player) {
+    this.x += this.vx * dt;
+    this.bob += dt * 3;
+    if (this.x < -40) this.dead = true;
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r + 4) {
+      this.dead = true;
+      player.gainXp(this.xp);
+      spawnExplosion(this.x, this.y, this.color, 8);
+    }
+  }
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y + Math.sin(this.bob) * 2, this.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Crow: perches/patrols in place (drifting by with the world) until the
+// player gets close and is not hidden, then chases for a bit. A shoo
+// (player Space, or the companion's auto-shoo) sends it back to patrol.
+class Crow {
+  constructor(scrollSpeed) {
+    this.x = W + 40;
+    this.y = 60 + Math.random() * (H - 140);
+    this.homeY = this.y;
+    this.vx = -scrollSpeed;
+    this.r = 15;
+    this.state = "patrol";
+    this.alertT = 0;
+    this.immuneT = 0;
+    this.wingPhase = Math.random() * 10;
+    this.t = Math.random() * 10;
+    this.dead = false;
+  }
+  update(dt, player) {
+    this.wingPhase += dt * 8;
+    this.t += dt;
+    if (this.immuneT > 0) this.immuneT -= dt;
+
+    if (this.state === "patrol") {
+      this.x += this.vx * dt;
+      this.y = this.homeY + Math.sin(this.t * 1.3) * 18;
+      if (!player.hidden && this.immuneT <= 0) {
+        if (dist(this.x, this.y, player.x, player.y) < 200) {
+          this.state = "alert";
+          this.alertT = 0.5;
+        }
+      }
+      if (this.x < -60) this.dead = true;
+    } else if (this.state === "alert") {
+      this.alertT -= dt;
+      this.x += this.vx * 0.3 * dt;
+      if (player.hidden) this.state = "patrol";
+      else if (this.alertT <= 0) this.state = "chase";
+    } else if (this.state === "chase") {
+      const ang = Math.atan2(player.y - this.y, player.x - this.x);
+      const speed = 150;
+      this.x += Math.cos(ang) * speed * dt;
+      this.y += Math.sin(ang) * speed * dt;
+      const d = dist(this.x, this.y, player.x, player.y);
+      if (player.hidden || d > 340) {
+        this.state = "patrol";
+        this.homeY = this.y;
+      } else if (d < this.r + player.r) {
+        player.hit(1, player.x - this.x, player.y - this.y, false);
+        this.state = "patrol";
+        this.homeY = this.y;
+        this.immuneT = 1.5;
+      }
+    }
+  }
+  shoo() {
+    this.state = "patrol";
+    this.homeY = this.y;
+    this.immuneT = 2;
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.fillStyle = "#374151";
+    ctx.beginPath();
+    ctx.arc(0, 0, this.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f59e0b";
+    ctx.beginPath();
+    ctx.moveTo(this.r * 0.7, -4);
+    ctx.lineTo(this.r * 1.4, 0);
+    ctx.lineTo(this.r * 0.7, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    if (this.state === "alert") {
+      ctx.fillStyle = "#fde047";
+      ctx.font = "bold 18px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("!", this.x, this.y - this.r - 8);
+    }
+  }
+}
+
+// Hawk: the un-shooable climax hazard on the mountain stage's home stretch.
+// It hovers, telegraphs a dive at the player's current lane, then swoops
+// through — dodge it, don't fight it.
+class Hawk {
+  constructor() {
+    this.homeX = W - 140;
+    this.homeY = 110;
+    this.x = this.homeX;
+    this.y = this.homeY;
+    this.r = 32;
+    this.state = "hover";
+    this.cooldown = 1.6;
+    this.telegraph = 0;
+    this.targetY = this.y;
+    this.diveVX = 0;
+    this.diveVY = 0;
+    this.wingPhase = 0;
+  }
+  update(dt, player) {
+    this.wingPhase += dt * 5;
+    if (this.state === "hover") {
+      this.y = this.homeY + Math.sin(performance.now() * 0.001) * 16;
+      this.x += (this.homeX - this.x) * Math.min(1, dt * 1.5);
+      this.cooldown -= dt;
+      if (this.cooldown <= 0) {
+        this.state = "telegraph";
+        this.telegraph = 0.7;
+        this.targetY = player.y;
+      }
+    } else if (this.state === "telegraph") {
+      this.telegraph -= dt;
+      if (this.telegraph <= 0) {
+        this.state = "dive";
+        const ang = Math.atan2(this.targetY - this.y, 120 - this.x);
+        const speed = 620;
+        this.diveVX = Math.cos(ang) * speed;
+        this.diveVY = Math.sin(ang) * speed;
+      }
+    } else if (this.state === "dive") {
+      this.x += this.diveVX * dt;
+      this.y += this.diveVY * dt;
+      if (this.x < -80 || this.x > W + 80 || this.y < -80 || this.y > H + 80) {
+        this.state = "reposition";
+      }
+    } else if (this.state === "reposition") {
+      this.x += (this.homeX - this.x) * Math.min(1, dt * 2);
+      this.y += (this.homeY - this.y) * Math.min(1, dt * 2);
+      if (dist(this.x, this.y, this.homeX, this.homeY) < 12) {
+        this.state = "hover";
+        this.cooldown = 2 + Math.random() * 0.8;
+      }
+    }
+
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
+      player.hit(1, player.x - this.x, player.y - this.y, true);
+    }
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    if (this.state === "dive") {
+      const ang = Math.atan2(this.diveVY, this.diveVX);
+      ctx.rotate(ang);
+    }
+    drawHawk(ctx, "#92400e", this.r, this.wingPhase);
+    ctx.restore();
+
+    if (this.state === "telegraph") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(220,38,38,0.7)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(120, this.targetY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#fde047";
+      ctx.font = "bold 22px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("!", this.x, this.y - this.r - 10);
+      ctx.restore();
+    }
+  }
+}
+
+class ShooRing {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.r = 10;
+    this.life = 0.4;
+    this.maxLife = 0.4;
+    this.dead = false;
+  }
+  update(dt) {
+    this.r += 260 * dt;
+    this.life -= dt;
+    if (this.life <= 0) this.dead = true;
+  }
+  draw() {
+    ctx.globalAlpha = clamp(this.life / this.maxLife, 0, 1) * 0.7;
+    ctx.strokeStyle = "#fde68a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function doShoo(x, y, radius) {
+  for (const c of crows) {
+    if (c.dead) continue;
+    if (dist(x, y, c.x, c.y) < radius) c.shoo();
+  }
+  shooRings.push(new ShooRing(x, y));
 }
 
 class Particle {
@@ -805,48 +895,11 @@ class Particle {
 function spawnExplosion(x, y, color, count) {
   for (let i = 0; i < (count || 16); i++) particles.push(new Particle(x, y, color));
 }
-function spawnMuzzle(x, y, ang) {
-  for (let i = 0; i < 3; i++) {
-    const p = new Particle(x + Math.cos(ang) * 16, y + Math.sin(ang) * 16, "#fde68a");
-    p.life = 0.12;
-    p.maxLife = 0.12;
-    particles.push(p);
-  }
-}
 
 // ---------- Game state ----------
-let player, bullets, enemies, hazards, foods, particles, score, shake, sparrow;
-let stageIndex, waveIndex, waveTimer, running, spawning;
-let bossSpawned, hazardTimer, foodTimer;
-
-function spawnWave(wave) {
-  const margin = 40;
-  const edges = [];
-  const count = (wave.chasers || 0) + (wave.shooters || 0) + (wave.brutes || 0);
-  for (let i = 0; i < count; i++) {
-    edges.push(Math.floor(Math.random() * 4));
-  }
-  const types = [];
-  for (let i = 0; i < (wave.chasers || 0); i++) types.push("chaser");
-  for (let i = 0; i < (wave.shooters || 0); i++) types.push("shooter");
-  for (let i = 0; i < (wave.brutes || 0); i++) types.push("brute");
-
-  types.forEach((type, i) => {
-    const edge = edges[i];
-    let x, y;
-    if (edge === 0) { x = -margin; y = Math.random() * H; }
-    else if (edge === 1) { x = W + margin; y = Math.random() * H; }
-    else if (edge === 2) { x = Math.random() * W; y = -margin; }
-    else { x = Math.random() * W; y = H + margin; }
-    enemies.push(new Enemy(type, x, y));
-  });
-}
-
-function spawnBoss() {
-  enemies.push(new Enemy("boss", W / 2, -60));
-  showBanner("タカが現れた!", 1600);
-  bossHpWrap.classList.add("visible");
-}
+let player, sparrow, hazards, crows, hideouts, foods, particles, shooRings, hawk;
+let stageIndex, distance, score, shake, running;
+let windTimer, debrisTimer, hailTimer, crowTimer, hideoutTimer, foodTimer;
 
 function showBanner(text, ms) {
   stageBanner.textContent = text;
@@ -860,27 +913,33 @@ function showBanner(text, ms) {
 
 function startStage(idx) {
   stageIndex = idx;
-  waveIndex = 0;
-  bossSpawned = false;
-  hazardTimer = 1.5;
-  bossHpWrap.classList.remove("visible");
-  stageNumEl.textContent = String(stageIndex + 1);
-  showBanner(`STAGE ${stageIndex + 1} - ${STAGES[stageIndex].name}`, 1600);
-  waveTimer = 1.0;
-  spawning = true;
+  distance = 0;
+  hazards = [];
+  crows = [];
+  hideouts = [];
+  foods = [];
+  hawk = null;
+
+  const st = STAGES[idx];
+  windTimer = rand(st.spawns.wind);
+  debrisTimer = rand(st.spawns.debris);
+  hailTimer = st.spawns.hail ? rand(st.spawns.hail) : Infinity;
+  crowTimer = rand(st.spawns.crow);
+  hideoutTimer = rand(st.spawns.hideout);
+  foodTimer = rand(st.spawns.food);
+
+  stageNumEl.textContent = String(idx + 1);
+  progressLabel.textContent = st.name;
+  showBanner(`STAGE ${idx + 1} - ${st.name}`, 1600);
 }
 
 function resetGame() {
   player = new Player(BIRD_SCHEMES[selectedBird]);
-  bullets = [];
-  enemies = [];
-  hazards = [];
-  foods = [];
-  particles = [];
   sparrow = new Sparrow();
+  particles = [];
+  shooRings = [];
   score = 0;
   shake = 0;
-  foodTimer = 2.5;
   scoreNumEl.textContent = "0";
   startStage(0);
   running = true;
@@ -888,129 +947,108 @@ function resetGame() {
 
 function onGameOver() {
   running = false;
-  gameoverDetail.textContent = `ステージ ${stageIndex + 1} で力尽きてしまった。飼い主のもとには帰れなかった…… スコア: ${score}`;
+  gameoverDetail.textContent = `ステージ ${stageIndex + 1} で力尽きてしまった。飼い主のもとには帰れなかった…… スコア: ${Math.floor(score)}`;
   gameoverScreen.classList.remove("hidden");
 }
 
 function onAllClear() {
   running = false;
   const companionNote = sparrow.state === "companion" ? "スズメの相棒と一緒に、" : "";
-  clearDetail.textContent = `ついに、なつかしい我が家が見えてきた。${companionNote}大好きな飼い主のもとへ帰り着いた! Lv.${player.level} / スコア: ${score}`;
+  clearDetail.textContent = `ついに、なつかしい我が家が見えてきた。${companionNote}大好きな飼い主のもとへ帰り着いた! Lv.${player.level} / スコア: ${Math.floor(score)}`;
   clearScreen.classList.remove("hidden");
 }
 
 // ---------- Update / draw loop ----------
 function update(dt) {
+  const st = STAGES[stageIndex];
+
   player.update(dt);
+  distance += st.scrollSpeed * dt;
+  score += st.scrollSpeed * dt * 0.4;
 
-  bullets.forEach((b) => b.update(dt));
-  bullets = bullets.filter((b) => !b.dead);
-
-  enemies.forEach((e) => e.update(dt, player));
-  sparrow.update(dt, player, enemies);
-
-  const stage = STAGES[stageIndex];
-  if (stage.hazard === "raindrops") {
-    hazardTimer -= dt;
-    if (hazardTimer <= 0) {
-      hazardTimer = 0.12 + Math.random() * 0.1;
-      hazards.push(new Raindrop());
-    }
-  } else if (stage.hazard === "hail") {
-    hazardTimer -= dt;
-    if (hazardTimer <= 0) {
-      hazardTimer = 0.35 + Math.random() * 0.25;
-      hazards.push(new Hail());
+  windTimer -= dt;
+  if (windTimer <= 0) {
+    hazards.push(new WindGust(st.scrollSpeed));
+    windTimer = rand(st.spawns.wind);
+  }
+  debrisTimer -= dt;
+  if (debrisTimer <= 0) {
+    hazards.push(new Debris(st.scrollSpeed));
+    debrisTimer = rand(st.spawns.debris);
+  }
+  if (st.spawns.hail) {
+    hailTimer -= dt;
+    if (hailTimer <= 0) {
+      hazards.push(new Hail(st.scrollSpeed));
+      hailTimer = rand(st.spawns.hail);
     }
   }
-  hazards.forEach((h) => h.update(dt, player));
-
+  crowTimer -= dt;
+  if (crowTimer <= 0) {
+    crows.push(new Crow(st.scrollSpeed));
+    crowTimer = rand(st.spawns.crow);
+  }
+  hideoutTimer -= dt;
+  if (hideoutTimer <= 0) {
+    hideouts.push(new Hideout(st.scrollSpeed, st.hideoutStyle));
+    hideoutTimer = rand(st.spawns.hideout);
+  }
   foodTimer -= dt;
-  if (foodTimer <= 0 && foods.length < 4) {
-    foodTimer = 2.5 + Math.random() * 2;
-    foods.push(new Food());
+  if (foodTimer <= 0 && foods.length < 3) {
+    foods.push(new Food(st.scrollSpeed));
+    foodTimer = rand(st.spawns.food);
   }
-  foods.forEach((f) => f.update(dt, player));
 
-  // friendly bullets (player + companion) vs enemies and hazards
-  for (const b of bullets) {
-    if (b.dead || b.owner === "enemy") continue;
-    for (const e of enemies) {
-      if (b.dead || e.dead) continue;
-      if (dist(b.x, b.y, e.x, e.y) < b.r + e.r) {
-        e.hit(b.dmg);
-        b.hits--;
-        if (b.hits <= 0) b.dead = true;
-      }
-    }
-    for (const h of hazards) {
-      if (b.dead || h.dead) continue;
-      if (dist(b.x, b.y, h.x, h.y) < b.r + h.r) {
-        h.hit(b.dmg);
-        b.hits--;
-        if (b.hits <= 0) b.dead = true;
-      }
-    }
-  }
-  // enemy bullets vs player
-  for (const b of bullets) {
-    if (b.owner !== "enemy") continue;
-    if (dist(b.x, b.y, player.x, player.y) < b.r + player.r) {
-      player.hit(b.dmg);
-      b.dead = true;
-    }
-  }
-  bullets = bullets.filter((b) => !b.dead);
-  enemies = enemies.filter((e) => !e.dead);
+  hazards.forEach((h) => h.update(dt, player));
   hazards = hazards.filter((h) => !h.dead);
+
+  hideouts.forEach((h) => h.update(dt));
+  player.hidden = hideouts.some((h) => !h.dead && h.contains(player));
+  hideouts = hideouts.filter((h) => !h.dead);
+
+  crows.forEach((c) => c.update(dt, player));
+  crows = crows.filter((c) => !c.dead);
+
+  foods.forEach((f) => f.update(dt, player));
   foods = foods.filter((f) => !f.dead);
+
+  sparrow.update(dt, player, crows);
+
+  if (st.hawk) {
+    if (!hawk && distance / st.distance >= 0.6) {
+      hawk = new Hawk();
+      showBanner("タカだ! よけろ!", 1400);
+    }
+    if (hawk) hawk.update(dt, player);
+  }
 
   particles.forEach((p) => p.update(dt));
   particles = particles.filter((p) => p.life > 0);
+  shooRings.forEach((r) => r.update(dt));
+  shooRings = shooRings.filter((r) => !r.dead);
 
   if (shake > 0) shake = Math.max(0, shake - dt * 40);
 
-  // boss hp bar
-  const boss = enemies.find((e) => e.isBoss);
-  if (boss) {
-    bossHpInner.style.width = `${clamp((boss.hp / boss.maxHp) * 100, 0, 100)}%`;
-  }
-
-  // wave / stage progression
-  if (spawning) {
-    waveTimer -= dt;
-    if (waveTimer <= 0) {
-      spawnWave(stage.waves[waveIndex]);
-      spawning = false;
-    }
-  } else if (enemies.length === 0) {
-    waveIndex++;
-    if (waveIndex < stage.waves.length) {
-      waveTimer = 1.2;
-      spawning = true;
-    } else if (stage.boss && !bossSpawned) {
-      bossSpawned = true;
-      spawnBoss();
+  if (distance >= st.distance) {
+    if (stageIndex + 1 < STAGES.length) {
+      stageIndex++;
+      startStage(stageIndex);
     } else {
-      bossHpWrap.classList.remove("visible");
-      if (stageIndex + 1 < STAGES.length) {
-        stageIndex++;
-        startStage(stageIndex);
-      } else {
-        onAllClear();
-      }
+      onAllClear();
     }
   }
 
-  hpBarInner.style.width = `${clamp((player.hp / player.maxHp) * 100, 0, 100)}%`;
-  scoreNumEl.textContent = String(score);
+  heartsEl.textContent = "❤".repeat(player.hearts) + "🤍".repeat(player.maxHearts - player.hearts);
+  const frac = clamp(distance / STAGES[stageIndex].distance, 0, 1);
+  progressInner.style.width = `${frac * 100}%`;
+  scoreNumEl.textContent = String(Math.floor(score));
 
   levelLabelEl.textContent = `Lv.${player.level}`;
   const nextLevel = LEVEL_UPS[player.level - 1];
   if (nextLevel) {
     const prevThreshold = player.level > 1 ? LEVEL_UPS[player.level - 2].threshold : 0;
-    const frac = (player.xp - prevThreshold) / (nextLevel.threshold - prevThreshold);
-    xpBarInner.style.width = `${clamp(frac * 100, 0, 100)}%`;
+    const xpFrac = (player.xp - prevThreshold) / (nextLevel.threshold - prevThreshold);
+    xpBarInner.style.width = `${clamp(xpFrac * 100, 0, 100)}%`;
   } else {
     xpBarInner.style.width = "100%";
   }
@@ -1099,11 +1137,13 @@ function draw() {
 
   drawSkyBackground(STAGES[stageIndex].theme);
 
+  hideouts.forEach((h) => h.draw());
   foods.forEach((f) => f.draw());
   hazards.forEach((h) => h.draw());
+  crows.forEach((c) => c.draw());
+  if (hawk) hawk.draw();
   particles.forEach((p) => p.draw());
-  bullets.forEach((b) => b.draw());
-  enemies.forEach((e) => e.draw());
+  shooRings.forEach((r) => r.draw());
   sparrow.draw();
   player.draw();
 
@@ -1134,7 +1174,6 @@ Object.keys(BIRD_SCHEMES).forEach((key) => {
   prevCanvas.height = 64;
   const pctx = prevCanvas.getContext("2d");
   pctx.translate(24, 32);
-  pctx.rotate(0);
   drawBunchou(pctx, scheme, 1.7);
 
   const label = document.createElement("span");

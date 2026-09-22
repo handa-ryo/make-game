@@ -28,7 +28,6 @@
     background: linear-gradient(180deg, #8fd3ff 0%, #e6f7ff 100%);
     display: block;
     box-shadow: 0 0 60px rgba(140, 190, 255, 0.25);
-    cursor: crosshair;
   }
   #hud {
     position: absolute;
@@ -54,19 +53,10 @@
   #hud .row {
     display: flex;
   }
-  #hp-bar-outer {
-    width: 140px;
-    height: 10px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 5px;
-    overflow: hidden;
-    margin-top: 4px;
-  }
-  #hp-bar-inner {
-    height: 100%;
-    width: 100%;
-    background: linear-gradient(90deg, #ff4d6d, #ff8fa3);
-    transition: width 0.15s ease;
+  #hearts {
+    font-size: 18px;
+    letter-spacing: 2px;
+    line-height: 1;
   }
   #level-stat {
     display: flex;
@@ -153,36 +143,33 @@
     background: rgba(255,255,255,0.06);
     font-size: 12px;
   }
-  #boss-hp-wrap {
+  #progress-wrap {
     position: absolute;
     top: 16px;
     left: 50%;
     transform: translateX(-50%);
     width: 360px;
     pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s ease;
   }
-  #boss-hp-wrap.visible { opacity: 1; }
-  #boss-hp-label {
+  #progress-label {
     text-align: center;
-    color: #fecaca;
+    color: #eef2ff;
     font-size: 12px;
     letter-spacing: 0.2em;
     margin-bottom: 3px;
     text-shadow: 0 0 6px rgba(0,0,0,0.8);
   }
-  #boss-hp-outer {
-    height: 12px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,150,150,0.3);
-    border-radius: 6px;
+  #progress-outer {
+    height: 10px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 5px;
     overflow: hidden;
   }
-  #boss-hp-inner {
+  #progress-inner {
     height: 100%;
-    width: 100%;
-    background: linear-gradient(90deg, #dc2626, #f87171);
+    width: 0%;
+    background: linear-gradient(90deg, #34d399, #fde68a);
     transition: width 0.15s ease;
   }
   .bird-picker {
@@ -237,14 +224,13 @@
       </div>
     </div>
     <div class="stat">
-      HP
-      <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
+      <span id="hearts">❤❤❤❤❤</span>
     </div>
   </div>
 
-  <div id="boss-hp-wrap">
-    <div id="boss-hp-label">タカ</div>
-    <div id="boss-hp-outer"><div id="boss-hp-inner"></div></div>
+  <div id="progress-wrap">
+    <div id="progress-label">青空</div>
+    <div id="progress-outer"><div id="progress-inner"></div></div>
   </div>
 
   <div id="stage-banner"></div>
@@ -254,9 +240,10 @@
     <p>
       ある日、鳥かごから逃げ出してしまった文鳥。大好きな飼い主のもとへ帰るため、大空を渡る旅がはじまる。
       <span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span>
-      または矢印キーで移動、マウスで狙って<span class="keycap">クリック/長押し</span>で嘴弾を発射。
-      粟玉やフルーツ、木の実を食べてレベルアップすると新しい技を覚える。野生のスズメと出会えたら仲良くなって仲間にしよう(1匹まで)。
-      行く手を阻むのはカラスや雹の群れ——乗り越えて、なつかしい我が家を目指せ。
+      または矢印キーで自由に飛び、強風やゴミ、雹をよけながら進もう。
+      カラスに気づかれたら<span class="keycap">Space</span>キーで追い払える。雲や葉かげに入れば見つからない。
+      粟玉やフルーツ、木の実を食べてレベルアップすると、追い払いの間合いが広がったり、とっさのかわし技を覚えたりする。
+      野生のスズメと出会えたら仲良くなって仲間にしよう(1匹まで)。なつかしい我が家を目指せ。
     </p>
     <button id="start-btn">つぎへ</button>
   </div>
