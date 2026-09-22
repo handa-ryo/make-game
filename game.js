@@ -355,6 +355,19 @@ class Player {
   }
 
   draw() {
+    if (this.hidden) {
+      ctx.save();
+      ctx.strokeStyle = "#fde68a";
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = 0.7;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(this.x, this.y);
     if (this.invuln > 0 && Math.floor(this.invuln * 20) % 2 === 0) {
@@ -595,6 +608,7 @@ class Hideout {
     this.x = W + 120;
     this.y = 60 + Math.random() * (H - 160);
     this.r = 80 + Math.random() * 30;
+    this.pulseSeed = Math.random() * Math.PI * 2;
     this.dead = false;
   }
   update(dt, scroll) {
@@ -648,6 +662,21 @@ class Hideout {
       ctx.closePath();
       ctx.fill();
     }
+    ctx.restore();
+
+    // A glowing dashed ring marks this as a spot you can actually hide
+    // in — distinct from the plain decorative clouds/mountains drifting
+    // by in the background.
+    ctx.save();
+    const pulse = 0.55 + Math.sin(performance.now() * 0.004 + this.pulseSeed) * 0.2;
+    ctx.globalAlpha = pulse;
+    ctx.strokeStyle = "#fde68a";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([7, 7]);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r * 0.92, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
   }
 }
@@ -940,6 +969,7 @@ function spawnExplosion(x, y, color, count) {
 let player, sparrow, hazards, crows, hideouts, foods, particles, shooRings, hawk;
 let stageIndex, distance, score, shake, running;
 let windTimer, debrisTimer, hailTimer, crowTimer, hideoutTimer, foodTimer;
+let hideoutHintShown;
 
 function showBanner(text, ms) {
   stageBanner.textContent = text;
@@ -980,6 +1010,7 @@ function resetGame() {
   shooRings = [];
   score = 0;
   shake = 0;
+  hideoutHintShown = false;
   scoreNumEl.textContent = "0";
   startStage(0);
   running = true;
@@ -1033,6 +1064,10 @@ function update(dt) {
   if (hideoutTimer <= 0 && hideouts.length < 9) {
     hideouts.push(new Hideout(st.hideoutStyle));
     hideoutTimer = rand(st.spawns.hideout);
+    if (!hideoutHintShown) {
+      hideoutHintShown = true;
+      showBanner("点線で光る場所に入るとカラスに見つからない!", 2200);
+    }
   }
   foodTimer -= dt;
   if (foodTimer <= 0 && foods.length < 3) {
