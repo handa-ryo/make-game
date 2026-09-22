@@ -68,6 +68,24 @@
     background: linear-gradient(90deg, #ff4d6d, #ff8fa3);
     transition: width 0.15s ease;
   }
+  #level-stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #xp-bar-outer {
+    width: 100px;
+    height: 8px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  #xp-bar-inner {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #fbbf24, #fde68a);
+    transition: width 0.15s ease;
+  }
   .overlay {
     position: absolute;
     inset: 0;
@@ -213,6 +231,10 @@
     <div class="row">
       <div class="stat">STAGE <span id="stage-num">1</span></div>
       <div class="stat">SCORE <span id="score-num">0</span></div>
+      <div class="stat" id="level-stat">
+        <span id="level-label">Lv.1</span>
+        <div id="xp-bar-outer"><div id="xp-bar-inner"></div></div>
+      </div>
     </div>
     <div class="stat">
       HP
@@ -230,11 +252,11 @@
   <div id="start-screen" class="overlay">
     <h1>SKY DRIFTER</h1>
     <p>
-      仲間とはぐれた文鳥が、新天地を探して大空を渡る全方向シューティング。
+      ある日、鳥かごから逃げ出してしまった文鳥。大好きな飼い主のもとへ帰るため、大空を渡る旅がはじまる。
       <span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span>
       または矢印キーで移動、マウスで狙って<span class="keycap">クリック/長押し</span>で嘴弾を発射。
-      青空・雨雲・夕焼け山脈と、ステージごとに空模様も出会う相手も変わっていきます。
-      各ステージの敵を突破すればクリア、全ステージクリアで新天地に到着です。
+      粟玉やフルーツ、木の実を食べてレベルアップすると新しい技を覚える。野生のスズメと出会えたら仲良くなって仲間にしよう(1匹まで)。
+      行く手を阻むのはカラスや雹の群れ——乗り越えて、なつかしい我が家を目指せ。
     </p>
     <button id="start-btn">つぎへ</button>
   </div>

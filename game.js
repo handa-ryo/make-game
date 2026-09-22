@@ -11,6 +11,8 @@ const scoreNumEl = document.getElementById("score-num");
 const stageBanner = document.getElementById("stage-banner");
 const bossHpWrap = document.getElementById("boss-hp-wrap");
 const bossHpInner = document.getElementById("boss-hp-inner");
+const levelLabelEl = document.getElementById("level-label");
+const xpBarInner = document.getElementById("xp-bar-inner");
 
 const startScreen = document.getElementById("start-screen");
 const charSelectScreen = document.getElementById("char-select-screen");
@@ -116,7 +118,7 @@ const STAGES = [
     boss: false,
     waves: [
       { chasers: 3, shooters: 0 },
-      { chasers: 4, shooters: 1 },
+      { chasers: 4, shooters: 1, brutes: 1 },
     ],
   },
   {
@@ -125,21 +127,28 @@ const STAGES = [
     hazard: "raindrops",
     boss: false,
     waves: [
-      { chasers: 4, shooters: 2 },
-      { chasers: 5, shooters: 2 },
+      { chasers: 4, shooters: 2, brutes: 1 },
+      { chasers: 5, shooters: 2, brutes: 1 },
       { chasers: 3, shooters: 3, brutes: 1 },
     ],
   },
   {
     name: "夕焼け山脈",
     theme: { sky: ["#3b2350", "#ff8a5c"], ambient: "sunset" },
-    hazard: null,
+    hazard: "hail",
     boss: true,
     waves: [
-      { chasers: 5, shooters: 3 },
-      { chasers: 6, shooters: 3 },
+      { chasers: 5, shooters: 3, brutes: 1 },
+      { chasers: 6, shooters: 3, brutes: 2 },
     ],
   },
+];
+
+// ---------- Leveling: food -> XP -> new techniques ----------
+const LEVEL_UPS = [
+  { threshold: 50, label: "Lv.2 わかどり", msg: "れんしゃがはやくなった!", apply: (p) => (p.fireRate = 0.1) },
+  { threshold: 140, label: "Lv.3 はばたきどり", msg: "3WAYショットをおぼえた!", apply: (p) => (p.spread = true) },
+  { threshold: 280, label: "Lv.4 エースバード", msg: "つらぬき弾をおぼえた!", apply: (p) => (p.pierceHits = 2) },
 ];
 
 // ---------- Input ----------
@@ -181,6 +190,21 @@ class Player {
     this.fireCooldown = 0;
     this.fireRate = 0.14;
     this.invuln = 0;
+    this.level = 1;
+    this.xp = 0;
+    this.spread = false;
+    this.pierceHits = 1;
+  }
+
+  gainXp(amount) {
+    this.xp += amount;
+    while (this.level - 1 < LEVEL_UPS.length && this.xp >= LEVEL_UPS[this.level - 1].threshold) {
+      const lv = LEVEL_UPS[this.level - 1];
+      lv.apply(this);
+      this.level++;
+      showBanner(`${lv.label} — ${lv.msg}`, 1800);
+      spawnExplosion(this.x, this.y, "#fde68a", 20);
+    }
   }
 
   update(dt) {
@@ -204,7 +228,11 @@ class Player {
     if (mouse.down && this.fireCooldown <= 0) {
       this.fireCooldown = this.fireRate;
       const ang = Math.atan2(mouse.y - this.y, mouse.x - this.x);
-      bullets.push(new Bullet(this.x, this.y, ang, 520, "player"));
+      bullets.push(new Bullet(this.x, this.y, ang, 520, "player", this.pierceHits));
+      if (this.spread) {
+        bullets.push(new Bullet(this.x, this.y, ang - 0.22, 520, "player", this.pierceHits));
+        bullets.push(new Bullet(this.x, this.y, ang + 0.22, 520, "player", this.pierceHits));
+      }
       spawnMuzzle(this.x, this.y, ang);
     }
     if (this.invuln > 0) this.invuln -= dt;
@@ -235,16 +263,19 @@ class Player {
   }
 }
 
+const BULLET_COLORS = { player: "#fde68a", companion: "#7dd3fc", enemy: "#f87171" };
+
 class Bullet {
-  constructor(x, y, angle, speed, owner) {
+  constructor(x, y, angle, speed, owner, hits) {
     this.x = x;
     this.y = y;
     this.vx = Math.cos(angle) * speed;
     this.vy = Math.sin(angle) * speed;
     this.owner = owner;
-    this.r = owner === "player" ? 4 : 5;
+    this.r = owner === "enemy" ? 5 : 4;
     this.dead = false;
-    this.dmg = owner === "player" ? 10 : 8;
+    this.dmg = owner === "player" ? 10 : owner === "companion" ? 6 : 8;
+    this.hits = hits || 1;
   }
   update(dt) {
     this.x += this.vx * dt;
@@ -254,9 +285,10 @@ class Bullet {
     }
   }
   draw() {
+    const color = BULLET_COLORS[this.owner];
     ctx.beginPath();
-    ctx.fillStyle = this.owner === "player" ? "#fde68a" : "#f87171";
-    ctx.shadowColor = this.owner === "player" ? "#fde68a" : "#f87171";
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
     ctx.shadowBlur = 8;
     ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
     ctx.fill();
@@ -527,6 +559,219 @@ class Raindrop {
   }
 }
 
+// Hailstone hazard for the mountain stage: bigger and harder-hitting than
+// rain, falls mostly straight down with a light drift.
+class Hail {
+  constructor() {
+    const margin = 40;
+    this.x = Math.random() * (W + 160) - 80;
+    this.y = -margin;
+    const speed = 200 + Math.random() * 90;
+    const windAngle = Math.PI / 2 + (Math.random() - 0.5) * 0.3;
+    this.vx = Math.cos(windAngle) * speed * 0.5;
+    this.vy = Math.sin(windAngle) * speed;
+    this.r = 8 + Math.random() * 5;
+    this.hp = 12;
+    this.rot = Math.random() * Math.PI * 2;
+    this.rotSpeed = (Math.random() - 0.5) * 4;
+    this.dead = false;
+    this.contactDmg = 14;
+  }
+  update(dt, player) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.rot += this.rotSpeed * dt;
+    if (this.y > H + 60) this.dead = true;
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r) {
+      player.hit(this.contactDmg * dt * 4);
+    }
+  }
+  hit(dmg) {
+    this.hp -= dmg;
+    if (this.hp <= 0) {
+      this.dead = true;
+      score += 4;
+      spawnExplosion(this.x, this.y, "#e0f2fe", 8);
+    }
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.fillStyle = "#e2f3ff";
+    ctx.strokeStyle = "#9fc9e8";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const spikes = 6;
+    for (let i = 0; i < spikes; i++) {
+      const a = (i / spikes) * Math.PI * 2;
+      const rr = this.r * (0.8 + ((i * 23) % 10) / 30);
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// Food: 粟玉/木の実/フルーツ scattered across every stage. Collecting one
+// grants the player XP toward their next level and technique.
+const FOOD_KINDS = [
+  { type: "awadama", xp: 10, color: "#fde68a", r: 5, weight: 0.55 },
+  { type: "nut", xp: 18, color: "#b8895f", r: 6, weight: 0.3 },
+  { type: "fruit", xp: 28, color: "#f87171", r: 7, weight: 0.15 },
+];
+
+class Food {
+  constructor() {
+    const roll = Math.random();
+    let acc = 0;
+    let kind = FOOD_KINDS[0];
+    for (const k of FOOD_KINDS) {
+      acc += k.weight;
+      if (roll <= acc) {
+        kind = k;
+        break;
+      }
+    }
+    this.type = kind.type;
+    this.xp = kind.xp;
+    this.color = kind.color;
+    this.r = kind.r;
+    const margin = 60;
+    this.x = margin + Math.random() * (W - margin * 2);
+    this.y = margin + Math.random() * (H - margin * 2);
+    this.life = 9;
+    this.bob = Math.random() * Math.PI * 2;
+    this.dead = false;
+  }
+  update(dt, player) {
+    this.life -= dt;
+    this.bob += dt * 3;
+    if (this.life <= 0) this.dead = true;
+    if (dist(this.x, this.y, player.x, player.y) < this.r + player.r + 4) {
+      this.dead = true;
+      player.gainXp(this.xp);
+      spawnExplosion(this.x, this.y, this.color, 8);
+    }
+  }
+  draw() {
+    ctx.globalAlpha = this.life < 2 ? clamp(this.life / 2, 0, 1) : 1;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y + Math.sin(this.bob) * 2, this.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawSparrow(g, scale) {
+  g.save();
+  g.scale(scale, scale);
+
+  g.fillStyle = "#6b5638";
+  g.beginPath();
+  g.moveTo(-8, -3);
+  g.lineTo(-16, 0);
+  g.lineTo(-8, 3);
+  g.closePath();
+  g.fill();
+
+  g.fillStyle = "#a9835a";
+  g.beginPath();
+  g.ellipse(0, 0, 10, 7.5, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "#8b6b45";
+  g.beginPath();
+  g.arc(7, -1.5, 6, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "rgba(40,30,20,0.55)";
+  g.beginPath();
+  g.ellipse(8, 2, 3, 2, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "#5b4636";
+  g.beginPath();
+  g.moveTo(12, -2.4);
+  g.lineTo(17, 0);
+  g.lineTo(12, 2.4);
+  g.closePath();
+  g.fill();
+
+  g.fillStyle = "#1a1a1a";
+  g.beginPath();
+  g.arc(8.5, -3, 1, 0, Math.PI * 2);
+  g.fill();
+
+  g.restore();
+}
+
+// Wild sparrow: wanders until the player flies close, then becomes a
+// permanent companion (max one) that trails the player and auto-fires at
+// nearby enemies.
+class Sparrow {
+  constructor() {
+    this.x = 120 + Math.random() * (W - 240);
+    this.y = 120 + Math.random() * (H - 240);
+    this.r = 9;
+    this.state = "wild";
+    this.wanderAngle = Math.random() * Math.PI * 2;
+    this.fireCooldown = 0;
+  }
+  update(dt, player, enemies) {
+    if (this.state === "wild") {
+      this.wanderAngle += (Math.random() - 0.5) * 2 * dt;
+      this.x += Math.cos(this.wanderAngle) * 45 * dt;
+      this.y += Math.sin(this.wanderAngle) * 45 * dt;
+      this.x = clamp(this.x, 40, W - 40);
+      this.y = clamp(this.y, 40, H - 40);
+      if (dist(this.x, this.y, player.x, player.y) < this.r + player.r + 10) {
+        this.state = "companion";
+        showBanner("スズメと なかまに なった!", 1800);
+      }
+      return;
+    }
+
+    const targetX = player.x - 24;
+    const targetY = player.y - 20;
+    this.x += (targetX - this.x) * Math.min(1, dt * 5);
+    this.y += (targetY - this.y) * Math.min(1, dt * 5);
+
+    this.fireCooldown -= dt;
+    if (this.fireCooldown <= 0) {
+      let target = null;
+      let best = 260;
+      for (const e of enemies) {
+        if (e.dead) continue;
+        const d = dist(this.x, this.y, e.x, e.y);
+        if (d < best) {
+          best = d;
+          target = e;
+        }
+      }
+      if (target) {
+        this.fireCooldown = 0.85;
+        const ang = Math.atan2(target.y - this.y, target.x - this.x);
+        bullets.push(new Bullet(this.x, this.y, ang, 420, "companion"));
+      }
+    }
+  }
+  draw() {
+    const ang = this.state === "wild" ? this.wanderAngle : Math.atan2(mouse.y - this.y, mouse.x - this.x);
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(ang);
+    drawSparrow(ctx, this.state === "companion" ? 0.9 : 0.8);
+    ctx.restore();
+  }
+}
+
 class Particle {
   constructor(x, y, color) {
     this.x = x;
@@ -570,9 +815,9 @@ function spawnMuzzle(x, y, ang) {
 }
 
 // ---------- Game state ----------
-let player, bullets, enemies, hazards, particles, score, shake;
+let player, bullets, enemies, hazards, foods, particles, score, shake, sparrow;
 let stageIndex, waveIndex, waveTimer, running, spawning;
-let bossSpawned, hazardTimer;
+let bossSpawned, hazardTimer, foodTimer;
 
 function spawnWave(wave) {
   const margin = 40;
@@ -630,9 +875,12 @@ function resetGame() {
   bullets = [];
   enemies = [];
   hazards = [];
+  foods = [];
   particles = [];
+  sparrow = new Sparrow();
   score = 0;
   shake = 0;
+  foodTimer = 2.5;
   scoreNumEl.textContent = "0";
   startStage(0);
   running = true;
@@ -640,13 +888,14 @@ function resetGame() {
 
 function onGameOver() {
   running = false;
-  gameoverDetail.textContent = `ステージ ${stageIndex + 1} で撃破されました。スコア: ${score}`;
+  gameoverDetail.textContent = `ステージ ${stageIndex + 1} で力尽きてしまった。飼い主のもとには帰れなかった…… スコア: ${score}`;
   gameoverScreen.classList.remove("hidden");
 }
 
 function onAllClear() {
   running = false;
-  clearDetail.textContent = `全ステージクリア！ 最終スコア: ${score}`;
+  const companionNote = sparrow.state === "companion" ? "スズメの相棒と一緒に、" : "";
+  clearDetail.textContent = `ついに、なつかしい我が家が見えてきた。${companionNote}大好きな飼い主のもとへ帰り着いた! Lv.${player.level} / スコア: ${score}`;
   clearScreen.classList.remove("hidden");
 }
 
@@ -658,6 +907,7 @@ function update(dt) {
   bullets = bullets.filter((b) => !b.dead);
 
   enemies.forEach((e) => e.update(dt, player));
+  sparrow.update(dt, player, enemies);
 
   const stage = STAGES[stageIndex];
   if (stage.hazard === "raindrops") {
@@ -666,27 +916,39 @@ function update(dt) {
       hazardTimer = 0.12 + Math.random() * 0.1;
       hazards.push(new Raindrop());
     }
+  } else if (stage.hazard === "hail") {
+    hazardTimer -= dt;
+    if (hazardTimer <= 0) {
+      hazardTimer = 0.35 + Math.random() * 0.25;
+      hazards.push(new Hail());
+    }
   }
   hazards.forEach((h) => h.update(dt, player));
 
-  // player bullets vs enemies
+  foodTimer -= dt;
+  if (foodTimer <= 0 && foods.length < 4) {
+    foodTimer = 2.5 + Math.random() * 2;
+    foods.push(new Food());
+  }
+  foods.forEach((f) => f.update(dt, player));
+
+  // friendly bullets (player + companion) vs enemies and hazards
   for (const b of bullets) {
-    if (b.owner !== "player") continue;
+    if (b.dead || b.owner === "enemy") continue;
     for (const e of enemies) {
-      if (e.dead) continue;
+      if (b.dead || e.dead) continue;
       if (dist(b.x, b.y, e.x, e.y) < b.r + e.r) {
         e.hit(b.dmg);
-        b.dead = true;
-        break;
+        b.hits--;
+        if (b.hits <= 0) b.dead = true;
       }
     }
-    if (b.dead) continue;
     for (const h of hazards) {
-      if (h.dead) continue;
+      if (b.dead || h.dead) continue;
       if (dist(b.x, b.y, h.x, h.y) < b.r + h.r) {
         h.hit(b.dmg);
-        b.dead = true;
-        break;
+        b.hits--;
+        if (b.hits <= 0) b.dead = true;
       }
     }
   }
@@ -701,6 +963,7 @@ function update(dt) {
   bullets = bullets.filter((b) => !b.dead);
   enemies = enemies.filter((e) => !e.dead);
   hazards = hazards.filter((h) => !h.dead);
+  foods = foods.filter((f) => !f.dead);
 
   particles.forEach((p) => p.update(dt));
   particles = particles.filter((p) => p.life > 0);
@@ -741,6 +1004,16 @@ function update(dt) {
 
   hpBarInner.style.width = `${clamp((player.hp / player.maxHp) * 100, 0, 100)}%`;
   scoreNumEl.textContent = String(score);
+
+  levelLabelEl.textContent = `Lv.${player.level}`;
+  const nextLevel = LEVEL_UPS[player.level - 1];
+  if (nextLevel) {
+    const prevThreshold = player.level > 1 ? LEVEL_UPS[player.level - 2].threshold : 0;
+    const frac = (player.xp - prevThreshold) / (nextLevel.threshold - prevThreshold);
+    xpBarInner.style.width = `${clamp(frac * 100, 0, 100)}%`;
+  } else {
+    xpBarInner.style.width = "100%";
+  }
 }
 
 function drawClouds() {
@@ -826,10 +1099,12 @@ function draw() {
 
   drawSkyBackground(STAGES[stageIndex].theme);
 
+  foods.forEach((f) => f.draw());
   hazards.forEach((h) => h.draw());
   particles.forEach((p) => p.draw());
   bullets.forEach((b) => b.draw());
   enemies.forEach((e) => e.draw());
+  sparrow.draw();
   player.draw();
 
   ctx.restore();
