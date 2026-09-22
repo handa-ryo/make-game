@@ -606,13 +606,19 @@ class Hideout {
         ? "leafCluster"
         : "rockOverhang";
     this.x = W + 120;
-    this.y = 60 + Math.random() * (H - 160);
+    this.baseY = 60 + Math.random() * (H - 160);
+    this.y = this.baseY;
     this.r = 80 + Math.random() * 30;
     this.pulseSeed = Math.random() * Math.PI * 2;
+    this.bobPhase = Math.random() * Math.PI * 2;
+    this.bobAmp = 18 + Math.random() * 18;
+    this.bobSpeed = 0.35 + Math.random() * 0.3;
     this.dead = false;
   }
   update(dt, scroll) {
     this.x -= scroll * 0.65;
+    this.bobPhase += dt * this.bobSpeed;
+    this.y = this.baseY + Math.sin(this.bobPhase) * this.bobAmp;
     if (this.x < -this.r - 100) this.dead = true;
   }
   contains(player) {
