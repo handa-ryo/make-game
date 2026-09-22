@@ -256,6 +256,8 @@ class Player {
     this.r = 14;
     this.xMin = 60;
     this.xMax = 560;
+    this.followX = 420;
+    this.frameScroll = 0;
     this.yMin = 50;
     this.yMax = 550;
     this.baseSpeed = 240;
@@ -298,15 +300,25 @@ class Player {
 
     let spd = this.baseSpeed;
     if (this.dashTimer > 0) spd *= 2.6;
+    let moveX = 0;
+    let moveY = 0;
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy);
-      dx /= len;
-      dy /= len;
-      this.x += dx * spd * dt;
-      this.y += dy * spd * dt;
+      moveX = (dx / len) * spd * dt;
+      moveY = (dy / len) * spd * dt;
     }
-    this.x = clamp(this.x, this.xMin, this.xMax);
-    this.y = clamp(this.y, this.yMin, this.yMax);
+    this.y = clamp(this.y + moveY, this.yMin, this.yMax);
+
+    // Pushing right past the follow line advances the world itself — the
+    // bunchou's own forward flight is what moves the story along, not a
+    // timer. Stop flying forward and the scenery (and story) stop too.
+    let newX = this.x + moveX;
+    this.frameScroll = 0;
+    if (newX > this.followX) {
+      this.frameScroll = newX - this.followX;
+      newX = this.followX;
+    }
+    this.x = clamp(newX, this.xMin, this.followX);
 
     this.shooCooldown -= dt;
     if (keys.has(" ") && this.shooCooldown <= 0) {
@@ -410,18 +422,17 @@ class Sparrow {
 // Wind gust: a wide translucent band drifting left. No damage, just a
 // steady push while the player is inside it — dodge it or steer through.
 class WindGust {
-  constructor(scrollSpeed) {
+  constructor() {
     this.x = W + 100;
     this.bandY = 60 + Math.random() * (H - 260);
     this.bandH = 150;
     this.width = 170;
-    this.vx = -scrollSpeed;
     this.dir = Math.random() < 0.5 ? -1 : 1;
     this.pushStrength = 120;
     this.dead = false;
   }
-  update(dt, player) {
-    this.x += this.vx * dt;
+  update(dt, player, scroll) {
+    this.x -= scroll;
     if (this.x < -this.width - 60) this.dead = true;
     if (
       player.x > this.x - this.width / 2 &&
@@ -457,13 +468,13 @@ class WindGust {
 // Flying debris: leaves / twigs / a stray bag drifting in on a light sine
 // wave. A single touch costs a heart and the debris disperses.
 class Debris {
-  constructor(scrollSpeed) {
+  constructor(windSpeed) {
     const kinds = ["leaf", "twig", "bag"];
     this.kind = kinds[Math.floor(Math.random() * kinds.length)];
     this.x = W + 40;
     this.baseY = 60 + Math.random() * (H - 120);
     this.y = this.baseY;
-    this.vx = -(scrollSpeed + 50 + Math.random() * 50);
+    this.selfSpeed = windSpeed * 0.5 + 40 + Math.random() * 40;
     this.amp = 20 + Math.random() * 30;
     this.freq = 1.5 + Math.random();
     this.t = Math.random() * 10;
@@ -472,9 +483,9 @@ class Debris {
     this.rotSpeed = (Math.random() - 0.5) * 3;
     this.dead = false;
   }
-  update(dt, player) {
+  update(dt, player, scroll) {
     this.t += dt;
-    this.x += this.vx * dt;
+    this.x -= scroll + this.selfSpeed * dt;
     this.y = this.baseY + Math.sin(this.t * this.freq) * this.amp;
     this.rot += this.rotSpeed * dt;
     if (this.x < -60) this.dead = true;
@@ -522,18 +533,17 @@ class Debris {
 // Hailstone hazard for the mountain stage: falls in on a diagonal, blown
 // by the same wind as everything else.
 class Hail {
-  constructor(scrollSpeed) {
+  constructor() {
     this.x = W + 40 + Math.random() * 100;
     this.y = -30;
-    this.vx = -(scrollSpeed * 0.6);
     this.vy = 260 + Math.random() * 90;
     this.r = 8 + Math.random() * 5;
     this.rot = Math.random() * Math.PI * 2;
     this.rotSpeed = (Math.random() - 0.5) * 4;
     this.dead = false;
   }
-  update(dt, player) {
-    this.x += this.vx * dt;
+  update(dt, player, scroll) {
+    this.x -= scroll * 0.6;
     this.y += this.vy * dt;
     this.rot += this.rotSpeed * dt;
     if (this.y > H + 60 || this.x < -60) this.dead = true;
@@ -569,16 +579,15 @@ class Hail {
 // Hideout: a big soft cloud (or leaf cluster on the mountain stage) the
 // player can duck into. While overlapping, crows can't spot them.
 class Hideout {
-  constructor(scrollSpeed, style) {
+  constructor(style) {
     this.style = style;
     this.x = W + 120;
     this.y = 60 + Math.random() * (H - 160);
-    this.vx = -(scrollSpeed * 0.65);
     this.r = 75 + Math.random() * 25;
     this.dead = false;
   }
-  update(dt) {
-    this.x += this.vx * dt;
+  update(dt, scroll) {
+    this.x -= scroll * 0.65;
     if (this.x < -this.r - 80) this.dead = true;
   }
   contains(player) {
@@ -621,7 +630,7 @@ const FOOD_KINDS = [
 ];
 
 class Food {
-  constructor(scrollSpeed) {
+  constructor() {
     const roll = Math.random();
     let acc = 0;
     let kind = FOOD_KINDS[0];
@@ -638,12 +647,11 @@ class Food {
     this.r = kind.r;
     this.x = W + 40;
     this.y = 60 + Math.random() * (H - 120);
-    this.vx = -scrollSpeed;
     this.bob = Math.random() * Math.PI * 2;
     this.dead = false;
   }
-  update(dt, player) {
-    this.x += this.vx * dt;
+  update(dt, player, scroll) {
+    this.x -= scroll;
     this.bob += dt * 3;
     if (this.x < -40) this.dead = true;
     if (dist(this.x, this.y, player.x, player.y) < this.r + player.r + 4) {
@@ -664,11 +672,10 @@ class Food {
 // player gets close and is not hidden, then chases for a bit. A shoo
 // (player Space, or the companion's auto-shoo) sends it back to patrol.
 class Crow {
-  constructor(scrollSpeed) {
+  constructor() {
     this.x = W + 40;
     this.y = 60 + Math.random() * (H - 140);
     this.homeY = this.y;
-    this.vx = -scrollSpeed;
     this.r = 15;
     this.state = "patrol";
     this.alertT = 0;
@@ -677,13 +684,13 @@ class Crow {
     this.t = Math.random() * 10;
     this.dead = false;
   }
-  update(dt, player) {
+  update(dt, player, scroll) {
     this.wingPhase += dt * 8;
     this.t += dt;
     if (this.immuneT > 0) this.immuneT -= dt;
 
     if (this.state === "patrol") {
-      this.x += this.vx * dt;
+      this.x -= scroll;
       this.y = this.homeY + Math.sin(this.t * 1.3) * 18;
       if (!player.hidden && this.immuneT <= 0) {
         if (dist(this.x, this.y, player.x, player.y) < 200) {
@@ -694,7 +701,7 @@ class Crow {
       if (this.x < -60) this.dead = true;
     } else if (this.state === "alert") {
       this.alertT -= dt;
-      this.x += this.vx * 0.3 * dt;
+      this.x -= scroll * 0.3;
       if (player.hidden) this.state = "patrol";
       else if (this.alertT <= 0) this.state = "chase";
     } else if (this.state === "chase") {
@@ -963,12 +970,13 @@ function update(dt) {
   const st = STAGES[stageIndex];
 
   player.update(dt);
-  distance += st.scrollSpeed * dt;
-  score += st.scrollSpeed * dt * 0.4;
+  const scroll = player.frameScroll;
+  distance += scroll;
+  score += scroll * 0.4;
 
   windTimer -= dt;
   if (windTimer <= 0) {
-    hazards.push(new WindGust(st.scrollSpeed));
+    hazards.push(new WindGust());
     windTimer = rand(st.spawns.wind);
   }
   debrisTimer -= dt;
@@ -979,37 +987,37 @@ function update(dt) {
   if (st.spawns.hail) {
     hailTimer -= dt;
     if (hailTimer <= 0) {
-      hazards.push(new Hail(st.scrollSpeed));
+      hazards.push(new Hail());
       hailTimer = rand(st.spawns.hail);
     }
   }
   crowTimer -= dt;
-  if (crowTimer <= 0) {
-    crows.push(new Crow(st.scrollSpeed));
+  if (crowTimer <= 0 && crows.length < 6) {
+    crows.push(new Crow());
     crowTimer = rand(st.spawns.crow);
   }
   hideoutTimer -= dt;
-  if (hideoutTimer <= 0) {
-    hideouts.push(new Hideout(st.scrollSpeed, st.hideoutStyle));
+  if (hideoutTimer <= 0 && hideouts.length < 6) {
+    hideouts.push(new Hideout(st.hideoutStyle));
     hideoutTimer = rand(st.spawns.hideout);
   }
   foodTimer -= dt;
   if (foodTimer <= 0 && foods.length < 3) {
-    foods.push(new Food(st.scrollSpeed));
+    foods.push(new Food());
     foodTimer = rand(st.spawns.food);
   }
 
-  hazards.forEach((h) => h.update(dt, player));
+  hazards.forEach((h) => h.update(dt, player, scroll));
   hazards = hazards.filter((h) => !h.dead);
 
-  hideouts.forEach((h) => h.update(dt));
+  hideouts.forEach((h) => h.update(dt, scroll));
   player.hidden = hideouts.some((h) => !h.dead && h.contains(player));
   hideouts = hideouts.filter((h) => !h.dead);
 
-  crows.forEach((c) => c.update(dt, player));
+  crows.forEach((c) => c.update(dt, player, scroll));
   crows = crows.filter((c) => !c.dead);
 
-  foods.forEach((f) => f.update(dt, player));
+  foods.forEach((f) => f.update(dt, player, scroll));
   foods = foods.filter((f) => !f.dead);
 
   sparrow.update(dt, player, crows);
