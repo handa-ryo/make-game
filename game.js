@@ -191,7 +191,7 @@ const STAGES = [
     distance: 2600,
     hideoutStyle: "cloud",
     hawk: false,
-    spawns: { wind: [4.5, 6.5], debris: [2.4, 3.6], crow: [5.5, 7.5], hideout: [3.2, 4.6], food: [2.6, 4] },
+    spawns: { wind: [4.5, 6.5], debris: [2.4, 3.6], crow: [5.5, 7.5], hideout: [1.8, 2.8], food: [2.6, 4] },
   },
   {
     name: "雨雲",
@@ -200,7 +200,7 @@ const STAGES = [
     distance: 3000,
     hideoutStyle: "cloud",
     hawk: false,
-    spawns: { wind: [4, 6], debris: [2.1, 3.2], crow: [4.5, 6.5], hideout: [3, 4.3], food: [2.6, 4] },
+    spawns: { wind: [4, 6], debris: [2.1, 3.2], crow: [4.5, 6.5], hideout: [1.6, 2.6], food: [2.6, 4] },
   },
   {
     name: "夕焼け山脈",
@@ -214,7 +214,7 @@ const STAGES = [
       debris: [2, 3],
       hail: [1.8, 2.8],
       crow: [4, 6],
-      hideout: [2.8, 4],
+      hideout: [1.5, 2.4],
       food: [2.6, 4],
     },
   },
@@ -245,6 +245,9 @@ function clamp(v, lo, hi) {
 }
 function dist(ax, ay, bx, by) {
   return Math.hypot(ax - bx, ay - by);
+}
+function mod(n, m) {
+  return ((n % m) + m) % m;
 }
 
 // ---------- Entities ----------
@@ -576,19 +579,27 @@ class Hail {
   }
 }
 
-// Hideout: a big soft cloud (or leaf cluster on the mountain stage) the
-// player can duck into. While overlapping, crows can't spot them.
+// Hideout: a big soft cloud/leaf cluster/rock overhang the player can duck
+// into. While overlapping, crows can't spot them.
 class Hideout {
   constructor(style) {
     this.style = style;
+    this.kind =
+      style === "cloud"
+        ? Math.random() < 0.5
+          ? "puffy"
+          : "wispy"
+        : Math.random() < 0.5
+        ? "leafCluster"
+        : "rockOverhang";
     this.x = W + 120;
     this.y = 60 + Math.random() * (H - 160);
-    this.r = 75 + Math.random() * 25;
+    this.r = 80 + Math.random() * 30;
     this.dead = false;
   }
   update(dt, scroll) {
     this.x -= scroll * 0.65;
-    if (this.x < -this.r - 80) this.dead = true;
+    if (this.x < -this.r - 100) this.dead = true;
   }
   contains(player) {
     return dist(this.x, this.y, player.x, player.y) < this.r * 0.85;
@@ -596,14 +607,23 @@ class Hideout {
   draw() {
     ctx.save();
     ctx.globalAlpha = 0.5;
-    if (this.style === "cloud") {
+    if (this.kind === "puffy") {
       ctx.fillStyle = "#ffffff";
       ctx.beginPath();
       ctx.ellipse(this.x, this.y, this.r, this.r * 0.62, 0, 0, Math.PI * 2);
       ctx.ellipse(this.x + this.r * 0.5, this.y - this.r * 0.2, this.r * 0.6, this.r * 0.42, 0, 0, Math.PI * 2);
       ctx.ellipse(this.x - this.r * 0.5, this.y + this.r * 0.1, this.r * 0.55, this.r * 0.4, 0, 0, Math.PI * 2);
       ctx.fill();
-    } else {
+    } else if (this.kind === "wispy") {
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y, this.r * 1.3, this.r * 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.ellipse(this.x - this.r * 0.5, this.y - this.r * 0.15, this.r * 0.8, this.r * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.kind === "leafCluster") {
       ctx.fillStyle = "#2f6e3a";
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
@@ -614,6 +634,17 @@ class Hideout {
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = "#6b625c";
+      ctx.beginPath();
+      ctx.moveTo(this.x - this.r, this.y + this.r * 0.5);
+      ctx.lineTo(this.x - this.r * 0.6, this.y - this.r * 0.6);
+      ctx.lineTo(this.x - this.r * 0.1, this.y - this.r * 0.2);
+      ctx.lineTo(this.x + this.r * 0.4, this.y - this.r * 0.75);
+      ctx.lineTo(this.x + this.r, this.y - this.r * 0.1);
+      ctx.lineTo(this.x + this.r * 0.7, this.y + this.r * 0.55);
       ctx.closePath();
       ctx.fill();
     }
@@ -997,7 +1028,7 @@ function update(dt) {
     crowTimer = rand(st.spawns.crow);
   }
   hideoutTimer -= dt;
-  if (hideoutTimer <= 0 && hideouts.length < 6) {
+  if (hideoutTimer <= 0 && hideouts.length < 9) {
     hideouts.push(new Hideout(st.hideoutStyle));
     hideoutTimer = rand(st.spawns.hideout);
   }
@@ -1062,77 +1093,148 @@ function update(dt) {
   }
 }
 
-function drawClouds() {
-  const t = performance.now() * 0.015;
-  ctx.fillStyle = "#ffffff";
-  for (let i = 0; i < 7; i++) {
-    const x = ((i * 160 + t * (0.6 + (i % 3) * 0.2)) % (W + 220)) - 110;
-    const y = 60 + ((i * 83) % (H - 140));
-    ctx.globalAlpha = 0.55;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 42, 18, 0, 0, Math.PI * 2);
-    ctx.ellipse(x + 26, y - 8, 28, 15, 0, 0, Math.PI * 2);
-    ctx.ellipse(x - 24, y - 4, 24, 13, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawRainAmbient() {
-  const t = performance.now() * 0.001;
-  ctx.strokeStyle = "rgba(220,235,255,0.35)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 60; i++) {
-    const seedX = (i * 53.7) % (W + 200) - 100;
-    const speed = 400 + (i % 5) * 60;
-    const y = (((i * 47) % H) + t * speed) % (H + 40) - 20;
-    const x = seedX + y * 0.35;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - 6, y - 14);
-    ctx.stroke();
+// Background parallax: every layer's horizontal position is driven by the
+// stage's traveled `distance` (not wall-clock time), so the whole sky
+// freezes exactly when the player stops flying forward, just like the
+// hazards — and moves visibly faster in the foreground than the
+// background, which is what actually reads as "flying forward."
+function drawTiledLayer(distanceVal, parallax, spacing, count, itemFn) {
+  const patternW = spacing * count;
+  const shift = mod(distanceVal * parallax, patternW);
+  for (let rep = -1; rep <= 2; rep++) {
+    const base = -shift + rep * patternW;
+    for (let i = 0; i < count; i++) {
+      itemFn(base + i * spacing, i);
+    }
   }
 }
 
-function drawSunsetAmbient() {
-  const t = performance.now() * 0.008;
-  ctx.fillStyle = "#ffd8a8";
-  for (let i = 0; i < 5; i++) {
-    const x = ((i * 200 + t * 0.4) % (W + 200)) - 100;
-    const y = 50 + i * 40;
-    ctx.globalAlpha = 0.25;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 70, 20, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  ctx.fillStyle = "rgba(30,15,40,0.55)";
+function drawCloudPuff(x, y, scale, alpha) {
+  ctx.globalAlpha = alpha;
   ctx.beginPath();
-  ctx.moveTo(0, H);
-  ctx.lineTo(0, H - 90);
-  ctx.lineTo(120, H - 150);
-  ctx.lineTo(230, H - 100);
-  ctx.lineTo(360, H - 170);
-  ctx.lineTo(480, H - 110);
-  ctx.lineTo(620, H - 160);
-  ctx.lineTo(760, H - 90);
-  ctx.lineTo(W, H - 130);
-  ctx.lineTo(W, H);
-  ctx.closePath();
+  ctx.ellipse(x, y, 42 * scale, 18 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + 26 * scale, y - 8 * scale, 28 * scale, 15 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x - 24 * scale, y + 4 * scale, 24 * scale, 13 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
-function drawSkyBackground(theme) {
+function drawMountainRidge(distanceVal, parallax, spacing, count, color, groundY, ampMin, ampMax, seed) {
+  const patternW = spacing * count;
+  const shift = mod(distanceVal * parallax, patternW);
+  ctx.fillStyle = color;
+  for (let rep = -1; rep <= 2; rep++) {
+    const startX = -shift + rep * patternW;
+    ctx.beginPath();
+    ctx.moveTo(startX, groundY);
+    for (let i = 0; i <= count; i++) {
+      const px = startX + i * spacing;
+      const h = ampMin + (((i * 53 + seed * 17) % 100) / 100) * (ampMax - ampMin);
+      ctx.lineTo(px, groundY - h);
+    }
+    ctx.lineTo(startX + count * spacing, groundY);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawCloudsAmbient(distanceVal) {
+  ctx.fillStyle = "#ffffff";
+  // far: pale, slow-moving haze
+  drawTiledLayer(distanceVal, 0.12, 300, 4, (x, i) => {
+    drawCloudPuff(x, 90 + (i % 2) * 70, 1.7, 0.16);
+  });
+  // mid: the familiar puffy clouds
+  drawTiledLayer(distanceVal, 0.45, 170, 6, (x, i) => {
+    drawCloudPuff(x, 60 + ((i * 83) % (H - 260)), 1, 0.55);
+  });
+  // near: small wisps that zip past quickly — the speed cue
+  drawTiledLayer(distanceVal, 0.85, 130, 7, (x, i) => {
+    drawCloudPuff(x, 400 + ((i * 61) % 150), 0.45, 0.4);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawRainAmbient(distanceVal) {
+  const t = performance.now() * 0.001;
+
+  // far: heavy, dark storm clouds, barely moving
+  drawTiledLayer(distanceVal, 0.1, 340, 3, (x, i) => {
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = "#3c4252";
+    ctx.beginPath();
+    ctx.ellipse(x, 80 + (i % 2) * 50, 110, 34, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // mid rain: horizontal position tied to distance, fall tied to time
+  // (gravity keeps pulling it down even mid-pause)
+  ctx.strokeStyle = "rgba(220,235,255,0.35)";
+  ctx.lineWidth = 1;
+  drawTiledLayer(distanceVal, 0.5, 60, 15, (x, i) => {
+    const speed = 400 + (i % 5) * 60;
+    const y = mod(((i * 47) % H) + t * speed, H + 40) - 20;
+    const drift = y * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(x + drift, y);
+    ctx.lineTo(x + drift - 6, y - 14);
+    ctx.stroke();
+  });
+
+  // near rain: closer, faster, brighter — the speed cue
+  ctx.strokeStyle = "rgba(230,240,255,0.55)";
+  ctx.lineWidth = 1.4;
+  drawTiledLayer(distanceVal, 0.95, 90, 8, (x, i) => {
+    const speed = 520 + (i % 4) * 50;
+    const y = mod(((i * 71) % H) + t * speed, H + 40) - 20;
+    const drift = y * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(x + drift, y);
+    ctx.lineTo(x + drift - 8, y - 18);
+    ctx.stroke();
+  });
+}
+
+function drawSunsetAmbient(distanceVal) {
+  // far: a lighter, hazier second mountain range peeking up behind
+  drawMountainRidge(distanceVal, 0.08, 150, 6, "rgba(120,70,90,0.35)", H - 60, 60, 130, 11);
+
+  // warm haze clouds
+  ctx.fillStyle = "#ffd8a8";
+  drawTiledLayer(distanceVal, 0.3, 220, 5, (x, i) => {
+    ctx.globalAlpha = 0.22;
+    ctx.beginPath();
+    ctx.ellipse(x, 50 + i * 40, 70, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // main mountain silhouette, now actually scrolling by
+  drawMountainRidge(distanceVal, 0.22, 170, 6, "rgba(30,15,40,0.55)", H, 90, 170, 3);
+
+  // foreground treetops skimming past — the speed cue
+  ctx.fillStyle = "#1f2d1a";
+  drawTiledLayer(distanceVal, 0.95, 46, 20, (x, i) => {
+    const h = 26 + (i % 3) * 10;
+    ctx.beginPath();
+    ctx.moveTo(x, H);
+    ctx.lineTo(x + 14, H - h);
+    ctx.lineTo(x + 28, H);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+function drawSkyBackground(theme, distanceVal) {
   const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, theme.sky[0]);
   grad.addColorStop(1, theme.sky[1]);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  if (theme.ambient === "clouds") drawClouds();
-  else if (theme.ambient === "rain") drawRainAmbient();
-  else if (theme.ambient === "sunset") drawSunsetAmbient();
+  if (theme.ambient === "clouds") drawCloudsAmbient(distanceVal);
+  else if (theme.ambient === "rain") drawRainAmbient(distanceVal);
+  else if (theme.ambient === "sunset") drawSunsetAmbient(distanceVal);
 }
 
 function draw() {
@@ -1143,7 +1245,7 @@ function draw() {
     ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
   }
 
-  drawSkyBackground(STAGES[stageIndex].theme);
+  drawSkyBackground(STAGES[stageIndex].theme, distance);
 
   hideouts.forEach((h) => h.draw());
   foods.forEach((f) => f.draw());
