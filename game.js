@@ -723,7 +723,7 @@ class Crow {
     if (this.state === "patrol") {
       this.x -= scroll;
       this.y = this.homeY + Math.sin(this.t * 1.3) * 18;
-      if (!player.hidden && this.immuneT <= 0) {
+      if (!player.hidden && this.immuneT <= 0 && this.x >= player.x) {
         if (dist(this.x, this.y, player.x, player.y) < 200) {
           this.state = "alert";
           this.alertT = 0.5;
@@ -736,9 +736,11 @@ class Crow {
       if (player.hidden) this.state = "patrol";
       else if (this.alertT <= 0) this.state = "chase";
     } else if (this.state === "chase") {
+      // Only ever approaches from ahead (the right) — never doubles back
+      // against the flow of travel to chase from behind.
       const ang = Math.atan2(player.y - this.y, player.x - this.x);
       const speed = 150;
-      this.x += Math.cos(ang) * speed * dt;
+      this.x += Math.min(Math.cos(ang) * speed, 0) * dt;
       this.y += Math.sin(ang) * speed * dt;
       const d = dist(this.x, this.y, player.x, player.y);
       if (player.hidden || d > 340) {
